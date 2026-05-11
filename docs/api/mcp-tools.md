@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-cursor-agent-a2a registers five MCP tools. All tools are available whether the MCP transport is `stdio` or `http`.
+coding-agent-a2a registers five MCP tools. All tools are available whether the MCP transport is `stdio` or `http`.
 
 **Typical usage sequence:**
 

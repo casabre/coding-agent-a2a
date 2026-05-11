@@ -1,4 +1,4 @@
-# Contributing to cursor-agent-a2a
+# Contributing to coding-agent-a2a
 
 Thank you for considering a contribution. This document covers everything you need to go from a fresh checkout to an open pull request.
 
@@ -27,8 +27,8 @@ Thank you for considering a contribution. This document covers everything you ne
 ### Clone and install
 
 ```bash
-git clone https://github.com/your-org/cursor-agent-a2a
-cd cursor-agent-a2a
+git clone https://github.com/casabre/coding-agent-a2a
+cd coding-agent-a2a
 npm install
 ```
 

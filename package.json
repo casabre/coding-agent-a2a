@@ -1,7 +1,7 @@
 {
-  "name": "cursor-agent-a2a",
+  "name": "coding-agent-a2a",
   "version": "0.1.0",
-  "description": "A2A server wrapping the Cursor Agent CLI",
+  "description": "A2A + MCP server that exposes coding-agent CLIs (Cursor, Claude Code) over two protocols on one port",
   "type": "module",
   "main": "dist/index.js",
   "files": [

@@ -1,4 +1,4 @@
-# cursor-agent-a2a
+# coding-agent-a2a
 
 A2A + MCP server that wraps any supported coding-agent CLI (Cursor, Claude Code) and exposes it to orchestrators over **two protocols simultaneously** on the same port:
 
@@ -23,8 +23,8 @@ Both protocols share the same underlying adapter, runner, and process-lifecycle 
 ### Install and run
 
 ```bash
-git clone https://github.com/your-org/cursor-agent-a2a
-cd cursor-agent-a2a
+git clone https://github.com/casabre/coding-agent-a2a
+cd coding-agent-a2a
 npm install
 npm run build
 ```
@@ -62,7 +62,7 @@ graph TB
         A2AClient["A2A Orchestrator\n(Claude Code)"]
     end
 
-    subgraph Server["cursor-agent-a2a  :41242"]
+    subgraph Server["coding-agent-a2a  :41242"]
         A2ARoute["POST /a2a/jsonrpc\nA2A layer"]
         MCPRoute["stdio or /mcp\nMCP layer"]
         Runner["CursorRunner\nspawn + NDJSON parse"]

@@ -22,8 +22,8 @@ For module responsibilities and design decisions see [architecture.md](architect
 ## 1. Local setup
 
 ```bash
-git clone https://github.com/your-org/cursor-agent-a2a
-cd cursor-agent-a2a
+git clone https://github.com/casabre/coding-agent-a2a
+cd coding-agent-a2a
 npm install
 npm run build           # compile TypeScript → dist/
 cp .env.example .env    # then edit AGENT_ADAPTER and AGENT_REPO_PATH

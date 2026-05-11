@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to cursor-agent-a2a are documented here.
+All notable changes to coding-agent-a2a are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions follow [Semantic Versioning](https://semver.org/spec/v2.0.0.html) and are derived from git tags at release time.
 
@@ -52,5 +52,5 @@ Initial release.
 - Tag-triggered npm publish with version derived from the git tag.
 - 100% line, branch, and function coverage enforced in CI.
 
-[Unreleased]: https://github.com/your-org/cursor-agent-a2a/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/your-org/cursor-agent-a2a/releases/tag/v0.1.0
+[Unreleased]: https://github.com/casabre/coding-agent-a2a/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/casabre/coding-agent-a2a/releases/tag/v0.1.0

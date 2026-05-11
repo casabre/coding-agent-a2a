@@ -1,6 +1,6 @@
 # A2A Protocol Reference
 
-cursor-agent-a2a implements [Google's Agent-to-Agent (A2A) protocol v0.3.0](https://google.github.io/A2A) using `@a2a-js/sdk` v0.3.13.
+coding-agent-a2a implements [Google's Agent-to-Agent (A2A) protocol v0.3.0](https://google.github.io/A2A) using `@a2a-js/sdk` v0.3.13.
 
 ---
 

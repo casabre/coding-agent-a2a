@@ -1,6 +1,6 @@
 # Deployment Guide
 
-This guide covers everything needed to run cursor-agent-a2a in production or locally: prerequisites, installation, configuration, transport modes, and Claude Desktop integration.
+This guide covers everything needed to run coding-agent-a2a in production or locally: prerequisites, installation, configuration, transport modes, and Claude Desktop integration.
 
 ---
 
@@ -50,17 +50,17 @@ claude --version
 ### From npm (production)
 
 ```bash
-npm install -g cursor-agent-a2a
-cursor-agent-a2a
+npm install -g coding-agent-a2a
+coding-agent-a2a
 ```
 
-When installed globally, `cursor-agent-a2a` is available as a binary.
+When installed globally, `coding-agent-a2a` is available as a binary.
 
 ### From source
 
 ```bash
-git clone https://github.com/your-org/cursor-agent-a2a
-cd cursor-agent-a2a
+git clone https://github.com/casabre/coding-agent-a2a
+cd coding-agent-a2a
 npm install
 npm run build
 npm start
@@ -150,7 +150,7 @@ For full step-by-step instructions including JSON config snippets for both modes
   "mcpServers": {
     "coding-agent-a2a": {
       "command": "node",
-      "args": ["/absolute/path/to/cursor-agent-a2a/dist/index.js"],
+      "args": ["/absolute/path/to/coding-agent-a2a/dist/index.js"],
       "env": {
         "MCP_TRANSPORT": "stdio",
         "AGENT_ADAPTER": "cursor",

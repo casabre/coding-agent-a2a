@@ -1,6 +1,6 @@
 # Architecture
 
-This document describes the internal structure of cursor-agent-a2a: its modules, the data flows for each protocol, and the key design decisions behind the implementation.
+This document describes the internal structure of coding-agent-a2a: its modules, the data flows for each protocol, and the key design decisions behind the implementation.
 
 ---
 
@@ -20,7 +20,7 @@ This document describes the internal structure of cursor-agent-a2a: its modules,
 
 ## 1. System overview
 
-cursor-agent-a2a runs as a single Node.js process that bridges two external protocol layers — A2A and MCP — to one or more coding-agent CLIs. Both protocols share the same underlying adapter, runner, and process-lifecycle logic.
+coding-agent-a2a runs as a single Node.js process that bridges two external protocol layers — A2A and MCP — to one or more coding-agent CLIs. Both protocols share the same underlying adapter, runner, and process-lifecycle logic.
 
 ```mermaid
 graph TB
@@ -29,7 +29,7 @@ graph TB
         A2AClient["A2A Orchestrator\n(Claude Code / any A2A client)"]
     end
 
-    subgraph Server["cursor-agent-a2a  (Node.js :41242)"]
+    subgraph Server["coding-agent-a2a  (Node.js :41242)"]
         Express["Express app"]
 
         subgraph A2ALayer["A2A layer"]
