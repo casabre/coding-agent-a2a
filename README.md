@@ -4,7 +4,7 @@ A2A + MCP server that wraps any supported coding-agent CLI (Cursor, Claude Code,
 
 | Protocol | Transport | Who uses it |
 |----------|-----------|-------------|
-| **A2A** v0.3.0 | HTTP JSON-RPC 2.0 + SSE | Claude Code, any A2A-compatible orchestrator |
+| **A2A** v1.0 | HTTP JSON-RPC 2.0 + SSE | Claude Code, any A2A-compatible orchestrator |
 | **MCP** | stdio or HTTP (`/mcp`) | Claude Desktop, any MCP host |
 
 Both protocols share the same underlying adapter, runner, and process-lifecycle logic.
@@ -38,7 +38,7 @@ docker run --rm \
   -v /path/to/my/project:/workspace \
   -v /usr/local/bin/claude:/usr/local/bin/claude:ro \
   -p 41242:41242 \
-  ghcr.io/carstendev/coding-agent-a2a:latest
+  ghcr.io/casabre/coding-agent-a2a:latest
 ```
 
 > The base image contains only the server — no CLI binary. Mount or copy one in; see the [Docker](#docker) section for patterns.
@@ -99,9 +99,9 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 The published image contains **only the Node.js server** — no CLI binary. This keeps it small and gives you full control over which agent binary runs inside the container.
 
 ```
-ghcr.io/carstendev/coding-agent-a2a:latest        # latest main
-ghcr.io/carstendev/coding-agent-a2a:v0.1.0        # pinned release
-ghcr.io/carstendev/coding-agent-a2a:0.1           # minor-pinned
+ghcr.io/casabre/coding-agent-a2a:latest        # latest main
+ghcr.io/casabre/coding-agent-a2a:v0.1.0        # pinned release
+ghcr.io/casabre/coding-agent-a2a:0.1           # minor-pinned
 ```
 
 The server binary path is resolved at startup from the adapter-specific env var (e.g. `CLAUDE_CODE_PATH`) and falls back to the bare name on `PATH`.
@@ -114,7 +114,7 @@ All example Dockerfiles live in [`examples/`](examples/).
 
 ```dockerfile
 # examples/Dockerfile.claude-code
-FROM ghcr.io/carstendev/coding-agent-a2a:latest
+FROM ghcr.io/casabre/coding-agent-a2a:latest
 
 USER root
 COPY --from=my-claude-builder /usr/local/bin/claude /usr/local/bin/claude
@@ -135,7 +135,7 @@ The `generic` adapter can run any CLI that emits the expected NDJSON events. Add
 
 ```dockerfile
 # examples/Dockerfile.python-agent
-FROM ghcr.io/carstendev/coding-agent-a2a:latest
+FROM ghcr.io/casabre/coding-agent-a2a:latest
 
 USER root
 RUN apt-get update \
@@ -162,7 +162,7 @@ docker run --rm \
   -v /my/project:/workspace \
   -e AGENT_REPO_PATH=/workspace \
   -p 41242:41242 \
-  ghcr.io/carstendev/coding-agent-a2a:latest
+  ghcr.io/casabre/coding-agent-a2a:latest
 ```
 
 ### Health check
@@ -203,7 +203,7 @@ helm install my-agent ./helm/coding-agent-a2a -f my-values.yaml
 
 | Value | Default | Description |
 |-------|---------|-------------|
-| `image.repository` | `ghcr.io/carstendev/coding-agent-a2a` | Image to deploy |
+| `image.repository` | `ghcr.io/casabre/coding-agent-a2a` | Image to deploy |
 | `image.tag` | `latest` | Image tag |
 | `agent.adapter` | `cursor` | Adapter: `cursor` \| `claude-code` \| `vibe` \| `codex` \| `opencode` \| `generic` |
 | `agent.timeoutMs` | `120000` | Hard timeout per task (ms) |
@@ -437,7 +437,7 @@ services:
       - "4318:4318"     # OTLP HTTP receiver
 
   agent:
-    image: ghcr.io/carstendev/coding-agent-a2a:latest
+    image: ghcr.io/casabre/coding-agent-a2a:latest
     environment:
       AGENT_ADAPTER: generic
       AGENT_BINARY: echo

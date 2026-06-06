@@ -1,0 +1,58 @@
+name: Helm
+
+on:
+  pull_request:
+    paths:
+      - 'helm/**'
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths:
+      - 'helm/**'
+
+concurrency:
+  group: helm-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+      - name: Lint chart
+        run: helm lint helm/coding-agent-a2a
+
+  publish:
+    name: Package & push OCI chart to ghcr.io
+    if: github.event_name == 'push'
+    needs: lint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: Derive chart version
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Package chart
+        run: |
+          helm package helm/coding-agent-a2a \
+            --version "${{ steps.version.outputs.version }}" \
+            --app-version "${{ steps.version.outputs.version }}"
+
+      - name: Log in to ghcr.io
+        run: echo "${{ github.token }}" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Push chart
+        run: helm push "coding-agent-a2a-${{ steps.version.outputs.version }}.tgz" oci://ghcr.io/${{ github.repository_owner }}

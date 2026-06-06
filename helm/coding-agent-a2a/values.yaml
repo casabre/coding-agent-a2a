@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/carstendev/coding-agent-a2a
+  repository: ghcr.io/casabre/coding-agent-a2a
   tag: latest
   pullPolicy: IfNotPresent
 

@@ -168,15 +168,22 @@ Restart Claude Desktop after editing the config.
 
 ## 6. Health checking
 
-There is no dedicated `/health` endpoint. Use the agent card as a liveness probe:
+Use the `/health` endpoint as a liveness probe:
+
+```bash
+curl -f http://localhost:41242/health
+# {"status":"ok","adapter":"cursor"}
+```
+
+Returns `200 OK` with `{ "status": "ok", "adapter": "<active-adapter>" }` when the server is running.
+
+The agent card is also always available without auth and can serve as an alternative readiness check:
 
 ```bash
 curl -f http://localhost:41242/.well-known/agent-card.json
 ```
 
-Returns `200 OK` with the agent card JSON when the server is running and ready.
-
-For monitoring systems, poll this endpoint every 30 s. A non-200 or connection error indicates the process is down.
+For monitoring systems, poll `/health` every 30 s. A non-200 or connection error indicates the process is down.
 
 ---
 
