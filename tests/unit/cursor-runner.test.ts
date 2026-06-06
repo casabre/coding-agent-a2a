@@ -78,6 +78,56 @@ afterEach(() => {
 });
 
 describe('CursorRunner', () => {
+  describe('stats capture and OTEL metrics', () => {
+    it('captures stats from done event and passes to _pendingStats', async () => {
+      const stats = { inputTokens: 42, outputTokens: 17, durationMs: 1234 };
+      const adapter = makeMockAdapter({
+        parseEvent: vi.fn((line: string): AgentEvent | null => {
+          try {
+            const parsed = JSON.parse(line) as Record<string, unknown>;
+            if (parsed['type'] === 'result') return { kind: 'done', summary: 'ok', stats };
+            return null;
+          } catch { return null; }
+        }),
+      });
+      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const events: AgentEvent[] = [];
+      const donePromise = new Promise<void>((resolve) => {
+        runner.on('agent-event', (e) => events.push(e));
+        runner.on('done', () => resolve());
+      });
+
+      runner.start();
+      emitLine(JSON.stringify({ type: 'result' }));
+      exitChild(0);
+
+      await donePromise;
+      const doneEvent = events.find((e) => e.kind === 'done') as { kind: 'done'; stats?: typeof stats } | undefined;
+      expect(doneEvent?.stats).toEqual(stats);
+    });
+
+    it('handles done event with partial stats (undefined fields fall back to 0)', async () => {
+      const stats = {};
+      const adapter = makeMockAdapter({
+        parseEvent: vi.fn((line: string): AgentEvent | null => {
+          try {
+            const parsed = JSON.parse(line) as Record<string, unknown>;
+            if (parsed['type'] === 'result') return { kind: 'done', summary: 'ok', stats };
+            return null;
+          } catch { return null; }
+        }),
+      });
+      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const donePromise = new Promise<void>((resolve) => { runner.on('done', () => resolve()); });
+
+      runner.start();
+      emitLine(JSON.stringify({ type: 'result' }));
+      exitChild(0);
+
+      await donePromise;
+    });
+  });
+
   describe('thinking event accumulation', () => {
     it('injects last thinking text as done.summary', async () => {
       const adapter = makeMockAdapter({

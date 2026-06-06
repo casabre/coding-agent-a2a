@@ -1,8 +1,11 @@
 import { EventEmitter } from 'node:events';
 import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
-import type { CodingAgentAdapter, AgentEvent } from './adapters/base.js';
+import type { Span } from '@opentelemetry/api';
+import { SpanStatusCode } from '@opentelemetry/api';
+import type { CodingAgentAdapter, AgentEvent, AgentStats } from './adapters/base.js';
 import type { Config } from './types.js';
+import { tracer, inputTokenCounter, outputTokenCounter, taskDurationHist, taskErrorCounter, context } from './telemetry.js';
 
 /** Construction options for {@link CursorRunner}. */
 export interface RunnerOptions {
@@ -48,6 +51,8 @@ export class CursorRunner extends EventEmitter {
   private _idleHandle: ReturnType<typeof setTimeout> | null = null;
   private _stderrBuffer = '';
   private _lastThinkingText = '';
+  private _span: Span | null = null;
+  private _pendingStats: AgentStats | null = null;
   private readonly _options: RunnerOptions;
 
   constructor(options: RunnerOptions) {
@@ -67,6 +72,10 @@ export class CursorRunner extends EventEmitter {
       timeoutMs: config.agentTimeoutMs,
     });
 
+    this._span = tracer.startSpan('cli.execute', {
+      attributes: { 'agent.adapter': adapter.name, 'agent.repo_path': config.agentRepoPath },
+    }, context.active());
+
     let child: ChildProcess;
     try {
       child = spawn(binary, args, {
@@ -75,6 +84,9 @@ export class CursorRunner extends EventEmitter {
         env: process.env,
       });
     } catch (err) {
+      this._span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      this._span.end();
+      this._span = null;
       this.emit(
         'error',
         new Error(`Failed to spawn "${binary}": ${String(err)}`),
@@ -85,6 +97,7 @@ export class CursorRunner extends EventEmitter {
     this._child = child;
 
     if (child.stdout === null || child.stderr === null) {
+      this._finalizeOtel(-1);
       this.emit('error', new Error(`"${binary}" process has no stdout/stderr`));
       return;
     }
@@ -119,15 +132,26 @@ export class CursorRunner extends EventEmitter {
       this._clearTimers();
       if (!this._cancelled && !this._exited) {
         this._exited = true;
+        if (this._span) {
+          this._span.recordException(err);
+          this._span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+          this._span.end();
+          this._span = null;
+        }
+        taskErrorCounter.add(1, { adapter: adapter.name, error_kind: 'spawn_error' });
         this.emit('error', new Error(`Failed to spawn "${binary}": ${err.message}`));
       }
     });
 
     child.on('close', (code: number | null) => {
       this._clearTimers();
+      const exitCode = code ?? -1;
+      // Always finalize telemetry regardless of whether this is a normal exit,
+      // a cancellation, or a timeout — _finalizeOtel is idempotent.
+      this._finalizeOtel(exitCode);
       if (this._cancelled || this._exited) return;
       this._exited = true;
-      this.emit('done', code ?? -1, this._stderrBuffer);
+      this.emit('done', exitCode, this._stderrBuffer);
     });
 
     if (config.agentTimeoutMs > 0) {
@@ -175,10 +199,39 @@ export class CursorRunner extends EventEmitter {
       if (event.kind === 'thinking') {
         this._lastThinkingText = event.text;
       }
+      if (event.kind === 'done' && event.stats) {
+        this._pendingStats = event.stats;
+      }
       const emitted = event.kind === 'done' ? { ...event, summary: this._lastThinkingText } : event;
       this.emit('agent-event', emitted);
     } else if (config.logLevel === 'debug') {
       console.warn(`[runner] Unparsed line (skipped): ${line.slice(0, 80)}`);
+    }
+  }
+
+  private _finalizeOtel(exitCode: number): void {
+    if (this._span) {
+      const stats = this._pendingStats;
+      this._span.setAttributes({
+        'agent.exit_code': exitCode,
+        'agent.input_tokens': stats?.inputTokens ?? 0,
+        'agent.output_tokens': stats?.outputTokens ?? 0,
+        'agent.duration_ms': stats?.durationMs ?? 0,
+      });
+      if (exitCode !== 0) {
+        this._span.setStatus({ code: SpanStatusCode.ERROR, message: `exit code ${exitCode}` });
+        taskErrorCounter.add(1, { adapter: this._options.adapter.name, error_kind: 'nonzero_exit' });
+      }
+      this._span.end();
+      this._span = null;
+    }
+    if (this._pendingStats) {
+      const s = this._pendingStats;
+      const adapterName = this._options.adapter.name;
+      inputTokenCounter.add(s.inputTokens ?? 0, { adapter: adapterName });
+      outputTokenCounter.add(s.outputTokens ?? 0, { adapter: adapterName });
+      taskDurationHist.record(s.durationMs ?? 0, { adapter: adapterName });
+      this._pendingStats = null;
     }
   }
 

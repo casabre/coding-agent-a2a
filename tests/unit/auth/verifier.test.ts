@@ -119,6 +119,16 @@ describe('createTokenVerifier', () => {
     });
   });
 
+  describe('issuer attribute when authIssuer is undefined', () => {
+    it('verifies token and records empty issuer when authIssuer is not configured', async () => {
+      const token = await signToken({ sub: 'client-no-issuer' });
+      const configNoIssuer: Config = { ...baseConfig, authIssuer: undefined };
+      const verifier = createTokenVerifier(configNoIssuer, jwksSet);
+      const info = await verifier.verifyAccessToken(token);
+      expect(info.clientId).toBe('client-no-issuer');
+    });
+  });
+
   describe('invalid token', () => {
     it('rejects expired token', async () => {
       const token = await new SignJWT({ sub: 'client-1' })

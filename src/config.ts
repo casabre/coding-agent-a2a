@@ -35,6 +35,7 @@ const ConfigSchema = z.object({
     (val) => (typeof val === 'string' && ['debug', 'info', 'warn', 'error'].includes(val) ? val : undefined),
     z.enum(['debug', 'info', 'warn', 'error']).default('info'),
   ),
+  otelEnabled: boolEnv(false),
   authEnabled:             z.boolean().optional(),
   authOidcDiscoveryUrl:    z.string().url().optional(),
   authAuthorizationUrl:    z.string().url().optional(),
@@ -92,6 +93,7 @@ function envVals(): Record<string, unknown> {
     agentRepoPath:   process.env['AGENT_REPO_PATH'],
     mcpTransport:    process.env['MCP_TRANSPORT'],
     logLevel:        process.env['LOG_LEVEL'],
+    otelEnabled: process.env['OTEL_ENABLED'],
     authEnabled: authEnabledRaw !== undefined
       ? ['true', '1', 'yes', 'on'].includes(authEnabledRaw.toLowerCase())
       : undefined,
