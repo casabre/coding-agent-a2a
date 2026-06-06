@@ -5,7 +5,7 @@ on:
     paths:
       - 'helm/**'
   push:
-    tags: ['v*']
+    tags: ['[0-9]*.[0-9]*.[0-9]*']
     paths:
       - 'helm/**'
 
@@ -25,7 +25,7 @@ jobs:
 
   publish:
     name: Package & push OCI chart to ghcr.io
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/')
     needs: lint
     runs-on: ubuntu-latest
     permissions:
@@ -37,7 +37,7 @@ jobs:
 
       - name: Derive chart version
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Package chart
         run: |
