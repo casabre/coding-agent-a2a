@@ -67,18 +67,26 @@ graph TB
     end
 
     subgraph Server["coding-agent-a2a  :41242"]
+        Health["GET /health\n(no auth)"]
+        AgentCard["GET /.well-known/agent-card.json\n(no auth)"]
+        AuthMeta["OAuth metadata + proxy\n/.well-known/* · /authorize · /token\n(no auth — public PKCE endpoints)"]
+        AuthMW["Bearer auth middleware\n(when AUTH_ENABLED=true)"]
         A2ARoute["POST /a2a/jsonrpc\nA2A layer"]
         MCPRoute["stdio or /mcp\nMCP layer"]
         Runner["CursorRunner\nspawn + NDJSON parse"]
-        Adapters["Adapters\ncursor  ·  claude-code  ·  vibe  ·  codex  ·  opencode  ·  generic"]
+        Adapters["Adapters\ncursor · claude-code · vibe · codex · opencode · generic"]
     end
 
+    IdP["Identity Provider\n(OIDC)"]
     CLI["cursor-agent  or  claude  or  vibe  or  codex  or  opencode"]
 
     MCPHost   -->|"stdio / HTTP"| MCPRoute
     A2AClient -->|"JSON-RPC + SSE"| A2ARoute
-    A2ARoute  --> Runner
-    MCPRoute  --> Runner
+    MCPHost   -.->|"OAuth PKCE dance"| AuthMeta
+    AuthMeta  -.->|"proxied"| IdP
+    A2ARoute  --> AuthMW
+    MCPRoute  --> AuthMW
+    AuthMW    --> Runner
     Runner    --> Adapters
     Adapters  -->|spawn| CLI
 ```
@@ -92,7 +100,7 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `41242` | HTTP port (A2A and, when `MCP_TRANSPORT=http`, MCP) |
-| `AGENT_ADAPTER` | `cursor` | `cursor` or `claude-code` or `vibe` or `codex` or `opencode` or `generic` |
+| `AGENT_ADAPTER` | `cursor` | `cursor` \| `claude-code` \| `vibe` \| `codex` \| `opencode` \| `generic` |
 | `AGENT_MODEL` | — | Model override forwarded to the CLI |
 | `AGENT_TIMEOUT_MS` | `120000` | Hard timeout per task (ms); `0` = disabled |
 | `AGENT_IDLE_EXIT_MS` | `0` | Kill if no stdout for this long (ms); `0` = disabled |
@@ -100,15 +108,85 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | `AGENT_REPO_PATH` | `.` | Working directory passed to the CLI as `cwd` |
 | `MCP_TRANSPORT` | `stdio` | `stdio` (Claude Desktop spawns the process) or `http` |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+| `CONFIG_FILE` | — | Path to a JSON config file; env vars always override file values |
 | `VIBE_BINARY_PATH` | `vibe` | Path to Vibe CLI binary |
 | `CODEX_BINARY_PATH` | `codex` | Path to Codex CLI binary |
 | `OPENCODE_BINARY_PATH` | `opencode` | Path to OpenCode CLI binary |
 | `AGENT_BINARY` | — | Path to custom binary (required for `generic` adapter) |
-| `AGENT_ARGS` | `""` | Default arguments for custom binary |
+| `AGENT_ARGS` | `""` | Default arguments for custom binary (double-quoted strings supported) |
 | `AGENT_APPROVAL_PATTERN` | — | Regex pattern to detect approval prompts (for `generic` adapter) |
 | `AGENT_APPROVAL_RESPONSE` | `y` | Response string for approval prompts (for `generic` adapter) |
 
+**Authentication variables** (all optional; only used when `AUTH_ENABLED=true`):
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTH_ENABLED` | `false` | Enable OAuth 2.0 Bearer auth on `/a2a/jsonrpc` and `/mcp` |
+| `AUTH_OIDC_DISCOVERY_URL` | — | OIDC discovery URL; auto-fills the three URLs below |
+| `AUTH_AUTHORIZATION_URL` | — | IdP `/authorize` endpoint (required if no discovery URL) |
+| `AUTH_TOKEN_URL` | — | IdP `/token` endpoint (required if no discovery URL) |
+| `AUTH_JWKS_URI` | — | IdP JWKS endpoint for token verification (required if no discovery URL) |
+| `AUTH_ISSUER` | — | Expected `iss` claim (required when `AUTH_ENABLED=true`) |
+| `AUTH_AUDIENCE` | — | Expected `aud` claim (required when `AUTH_ENABLED=true`) |
+| `AUTH_REQUIRED_SCOPES` | — | Comma-separated scopes required on incoming tokens (e.g. `agent:run`) |
+| `AUTH_SERVER_URL` | `http://localhost:PORT` | This server as Authorization Server (OAuth metadata issuer URL) |
+| `AUTH_RESOURCE_URL` | `AUTH_SERVER_URL/mcp` | This server as Resource Server (RFC 9728) |
+| `AUTH_ALLOWED_REDIRECT_URIS` | — | Comma-separated allowed redirect URIs; if unset, IdP validates |
+
 Full configuration reference with validation rules: **[docs/deployment.md#configuration](docs/deployment.md#configuration)**.
+
+### Authentication
+
+By default (`AUTH_ENABLED=false`) all routes are open — suitable for local development and trusted-network deployments.
+
+Set `AUTH_ENABLED=true` to require OAuth 2.0 Bearer tokens on:
+- `POST /a2a/jsonrpc` — A2A JSON-RPC surface
+- `POST|GET|DELETE /mcp` — MCP HTTP transport (when `MCP_TRANSPORT=http`)
+
+The `stdio` MCP path is never affected by auth (the process is spawned directly by Claude Desktop — process-level trust).
+
+The server mounts a full OAuth 2.0 proxy via the MCP SDK's `ProxyOAuthServerProvider`, so MCP clients (Claude Desktop, Claude Code) get standard `/.well-known/oauth-authorization-server` discovery and a complete Authorization Code + PKCE dance through to your IdP — without you implementing any OAuth logic.
+
+#### Quickest setup — OIDC discovery URL
+
+```bash
+AUTH_ENABLED=true
+AUTH_OIDC_DISCOVERY_URL=https://idp.example.com/.well-known/openid-configuration
+AUTH_ISSUER=https://idp.example.com
+AUTH_AUDIENCE=coding-agent
+```
+
+This auto-populates `AUTH_AUTHORIZATION_URL`, `AUTH_TOKEN_URL`, and `AUTH_JWKS_URI` from the IdP's discovery document at startup.
+
+#### Manual URL setup (no discovery URL)
+
+```bash
+AUTH_ENABLED=true
+AUTH_AUTHORIZATION_URL=https://idp.example.com/authorize
+AUTH_TOKEN_URL=https://idp.example.com/token
+AUTH_JWKS_URI=https://idp.example.com/.well-known/jwks.json
+AUTH_ISSUER=https://idp.example.com
+AUTH_AUDIENCE=coding-agent
+```
+
+#### OAuth endpoints exposed by this server
+
+When `AUTH_ENABLED=true`, the following endpoints are mounted automatically (no auth required on them — these are public metadata/proxy endpoints):
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /.well-known/oauth-authorization-server` | OAuth server metadata (RFC 8414) |
+| `GET /.well-known/oauth-protected-resource` | Resource server metadata (RFC 9728) |
+| `GET /authorize` | Proxies to IdP authorize endpoint |
+| `POST /token` | Proxies to IdP token endpoint |
+
+#### Production notes
+
+- `AUTH_SERVER_URL` must be HTTPS in production (the MCP SDK enforces this). `localhost` is whitelisted for development.
+- Restrict redirect URIs with `AUTH_ALLOWED_REDIRECT_URIS` for public deployments; if unset, redirect URI validation is delegated to the IdP.
+- CORS is set to `*` on all auth/discovery endpoints (intentional — these serve public PKCE-protected flows). Use a reverse proxy (nginx, Caddy) if you need restricted CORS.
+
+---
 
 ### Using Different Adapters
 
@@ -167,7 +245,12 @@ Full parameter schemas and examples: **[docs/api/mcp-tools.md](docs/api/mcp-tool
 ## A2A protocol
 
 The A2A surface exposes one skill (`code-task`) and supports streaming via `message/stream`.
-The agent card is served at `GET /.well-known/agent-card.json`.
+
+| Endpoint | Auth | Description |
+|----------|------|-------------|
+| `GET /health` | none | Liveness probe — returns `{"status":"ok","adapter":"<name>"}` |
+| `GET /.well-known/agent-card.json` | none | A2A agent card (spec-required, always public) |
+| `POST /a2a/jsonrpc` | Bearer (when `AUTH_ENABLED=true`) | JSON-RPC 2.0 + SSE streaming |
 
 Full method reference, event shapes, and state machine: **[docs/api/a2a.md](docs/api/a2a.md)**.
 
