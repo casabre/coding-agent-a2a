@@ -1,0 +1,21 @@
+# Derive from the base image and add the Claude Code binary.
+# Build the claude binary in a separate stage (or pull from an installer image),
+# then copy it into this image. The server resolves it at runtime via AGENT_ADAPTER.
+#
+# Usage:
+#   docker build -f examples/Dockerfile.claude-code -t my-claude-agent .
+#   docker run -e AGENT_REPO_PATH=/workspace -v /my/project:/workspace my-claude-agent
+
+FROM ghcr.io/OWNER/coding-agent-a2a:latest
+
+USER root
+
+# Copy the pre-built claude binary from your own build stage or installer image.
+# Example multi-stage approach:
+#   COPY --from=my-claude-installer /usr/local/bin/claude /usr/local/bin/claude
+COPY --from=my-claude-builder /usr/local/bin/claude /usr/local/bin/claude
+RUN chmod +x /usr/local/bin/claude
+
+USER node
+
+ENV AGENT_ADAPTER=claude-code

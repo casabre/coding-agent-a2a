@@ -1,0 +1,13 @@
+node_modules/
+dist/
+tests/
+docs/
+coverage/
+.env
+.env.*
+.git/
+.github/
+helm/
+examples/
+*.md
+!README.md

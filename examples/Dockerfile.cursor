@@ -1,0 +1,16 @@
+# Derive from the base image and add the Cursor agent binary.
+#
+# Usage:
+#   docker build -f examples/Dockerfile.cursor -t my-cursor-agent .
+#   docker run -e AGENT_REPO_PATH=/workspace -v /my/project:/workspace my-cursor-agent
+
+FROM ghcr.io/OWNER/coding-agent-a2a:latest
+
+USER root
+
+COPY --from=my-cursor-builder /usr/local/bin/cursor-agent /usr/local/bin/cursor-agent
+RUN chmod +x /usr/local/bin/cursor-agent
+
+USER node
+
+ENV AGENT_ADAPTER=cursor
