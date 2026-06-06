@@ -1,6 +1,6 @@
 # coding-agent-a2a
 
-A2A + MCP server that wraps any supported coding-agent CLI (Cursor, Claude Code) and exposes it to orchestrators over **two protocols simultaneously** on the same port:
+A2A + MCP server that wraps any supported coding-agent CLI (Cursor, Claude Code, Vibe, Codex, OpenCode) and exposes it to orchestrators over **two protocols simultaneously** on the same port:
 
 | Protocol | Transport | Who uses it |
 |----------|-----------|-------------|
@@ -13,47 +13,39 @@ Both protocols share the same underlying adapter, runner, and process-lifecycle 
 
 ## Quick start
 
-### Prerequisites
+### Run from source (local dev)
 
-- Node.js 20 or later
-- One supported CLI on your `PATH` (or set the path explicitly via env var):
-  - `cursor-agent` — [Cursor](https://cursor.sh) agent CLI
-  - `claude` — [Claude Code](https://claude.ai/code) CLI
-  - `vibe` — [Mistral Vibe](https://docs.mistral.ai/mistral-vibe/terminal) CLI
-  - `codex` — [Codex](https://codex.sh) CLI
-  - `opencode` — [OpenCode](https://github.com/saoudrizwan/OpenCode) CLI
-  - Any custom CLI via the `generic` adapter
-
-### Install and run
+**Prerequisites:** Node.js 20+, one supported CLI on `PATH`.
 
 ```bash
 git clone https://github.com/casabre/coding-agent-a2a
 cd coding-agent-a2a
 npm install
 npm run build
-```
-
-Copy and edit the example env file:
-
-```bash
-cp .env.example .env
-# Set at minimum: AGENT_ADAPTER and AGENT_REPO_PATH
-```
-
-Start the server:
-
-```bash
+cp .env.example .env   # set AGENT_ADAPTER and AGENT_REPO_PATH at minimum
 npm start
-# coding-agent-a2a v0.1.0
-# adapter:       cursor
-# A2A endpoint:  http://localhost:41242/a2a/jsonrpc
-# Agent Card:    http://localhost:41242/.well-known/agent-card.json
-# MCP transport: stdio
 ```
+
+### Run with Docker
+
+Pull the base image and point it at your CLI binary:
+
+```bash
+docker run --rm \
+  -e AGENT_ADAPTER=claude-code \
+  -e CLAUDE_CODE_PATH=/usr/local/bin/claude \
+  -e AGENT_REPO_PATH=/workspace \
+  -v /path/to/my/project:/workspace \
+  -v /usr/local/bin/claude:/usr/local/bin/claude:ro \
+  -p 41242:41242 \
+  ghcr.io/carstendev/coding-agent-a2a:latest
+```
+
+> The base image contains only the server — no CLI binary. Mount or copy one in; see the [Docker](#docker) section for patterns.
 
 ### Use with Claude Desktop
 
-See **[docs/deployment.md](docs/deployment.md#claude-desktop)** for step-by-step Claude Desktop configuration, or jump directly to **[docs/claude-desktop-config.md](docs/claude-desktop-config.md)**.
+See **[docs/deployment.md](docs/deployment.md#claude-desktop)** for step-by-step Claude Desktop configuration, or jump to **[docs/claude-desktop-config.md](docs/claude-desktop-config.md)**.
 
 ---
 
@@ -75,10 +67,12 @@ graph TB
         MCPRoute["stdio or /mcp\nMCP layer"]
         Runner["CursorRunner\nspawn + NDJSON parse"]
         Adapters["Adapters\ncursor · claude-code · vibe · codex · opencode · generic"]
+        OTEL["OTEL SDK\ntraces + metrics → OTLP"]
     end
 
     IdP["Identity Provider\n(OIDC)"]
     CLI["cursor-agent  or  claude  or  vibe  or  codex  or  opencode"]
+    Collector["OTEL Collector\n(Jaeger, Grafana, …)"]
 
     MCPHost   -->|"stdio / HTTP"| MCPRoute
     A2AClient -->|"JSON-RPC + SSE"| A2ARoute
@@ -89,13 +83,198 @@ graph TB
     AuthMW    --> Runner
     Runner    --> Adapters
     Adapters  -->|spawn| CLI
+    Runner    -.->|spans + metrics| OTEL
+    AuthMW    -.->|spans| OTEL
+    OTEL      -.->|OTLP| Collector
 ```
 
 For a detailed component breakdown, design decisions, and event-flow diagrams, see **[docs/architecture.md](docs/architecture.md)**.
 
 ---
 
+## Docker
+
+### Base image
+
+The published image contains **only the Node.js server** — no CLI binary. This keeps it small and gives you full control over which agent binary runs inside the container.
+
+```
+ghcr.io/carstendev/coding-agent-a2a:latest        # latest main
+ghcr.io/carstendev/coding-agent-a2a:v0.1.0        # pinned release
+ghcr.io/carstendev/coding-agent-a2a:0.1           # minor-pinned
+```
+
+The server binary path is resolved at startup from the adapter-specific env var (e.g. `CLAUDE_CODE_PATH`) and falls back to the bare name on `PATH`.
+
+### Extending the base image
+
+All example Dockerfiles live in [`examples/`](examples/).
+
+#### Copy in a pre-built binary
+
+```dockerfile
+# examples/Dockerfile.claude-code
+FROM ghcr.io/carstendev/coding-agent-a2a:latest
+
+USER root
+COPY --from=my-claude-builder /usr/local/bin/claude /usr/local/bin/claude
+RUN chmod +x /usr/local/bin/claude
+USER node
+
+ENV AGENT_ADAPTER=claude-code
+```
+
+```bash
+docker build -f examples/Dockerfile.claude-code -t my-claude-agent .
+docker run -e AGENT_REPO_PATH=/workspace -v /my/project:/workspace my-claude-agent
+```
+
+#### Add a language runtime (Python example)
+
+The `generic` adapter can run any CLI that emits the expected NDJSON events. Add the runtime and your script on top of the base image:
+
+```dockerfile
+# examples/Dockerfile.python-agent
+FROM ghcr.io/carstendev/coding-agent-a2a:latest
+
+USER root
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-pip \
+    && rm -rf /var/lib/apt/lists/*
+COPY my_agent.py /usr/local/bin/my-agent.py
+RUN chmod +x /usr/local/bin/my-agent.py
+USER node
+
+ENV AGENT_ADAPTER=generic \
+    AGENT_BINARY=python3 \
+    AGENT_ARGS=/usr/local/bin/my-agent.py
+```
+
+> Your `my_agent.py` must produce NDJSON events on stdout. See [docs/architecture.md](docs/architecture.md) for the event schema.
+
+#### Mount the binary at runtime (no rebuild)
+
+```bash
+docker run --rm \
+  -e AGENT_ADAPTER=generic \
+  -e AGENT_BINARY=/bin/my-agent \
+  -v /usr/local/bin/my-agent:/bin/my-agent:ro \
+  -v /my/project:/workspace \
+  -e AGENT_REPO_PATH=/workspace \
+  -p 41242:41242 \
+  ghcr.io/carstendev/coding-agent-a2a:latest
+```
+
+### Health check
+
+The image has a built-in `HEALTHCHECK` on `/health`. Docker reports the container healthy once the server has started:
+
+```bash
+docker inspect --format '{{.State.Health.Status}}' my-container
+# healthy
+```
+
+---
+
+## Kubernetes (Helm)
+
+A Helm chart ships with the repo under [`helm/coding-agent-a2a/`](helm/coding-agent-a2a/).
+
+### Prerequisites
+
+- Helm 3
+- Kubernetes 1.21+
+
+### Install
+
+```bash
+helm install my-agent ./helm/coding-agent-a2a \
+  --set agent.adapter=claude-code \
+  --set image.tag=v0.1.0
+```
+
+Or from a `values.yaml` override file:
+
+```bash
+helm install my-agent ./helm/coding-agent-a2a -f my-values.yaml
+```
+
+### Common configuration
+
+| Value | Default | Description |
+|-------|---------|-------------|
+| `image.repository` | `ghcr.io/carstendev/coding-agent-a2a` | Image to deploy |
+| `image.tag` | `latest` | Image tag |
+| `agent.adapter` | `cursor` | Adapter: `cursor` \| `claude-code` \| `vibe` \| `codex` \| `opencode` \| `generic` |
+| `agent.timeoutMs` | `120000` | Hard timeout per task (ms) |
+| `workspace.type` | `emptyDir` | Workspace volume: `emptyDir` \| `pvc` \| `hostPath` |
+| `auth.enabled` | `false` | Enable OAuth 2.0 Bearer auth |
+| `otel.enabled` | `false` | Enable OpenTelemetry traces and metrics |
+| `otel.endpoint` | — | OTLP receiver URL (e.g. `http://otel-collector:4318`) |
+| `replicaCount` | `1` | Pod replicas (stateless — scales horizontally) |
+
+See [`helm/coding-agent-a2a/values.yaml`](helm/coding-agent-a2a/values.yaml) for the full reference with inline comments.
+
+### Workspace volume
+
+Each task spawns a CLI process in `AGENT_REPO_PATH`. Configure the workspace volume to match your use case:
+
+```yaml
+# ephemeral (default — tasks work on files copied in by the caller)
+workspace:
+  type: emptyDir
+
+# persistent volume claim (provision new PVC automatically)
+workspace:
+  type: pvc
+  pvc:
+    storageClass: standard
+    size: 20Gi
+
+# use an existing PVC
+workspace:
+  type: pvc
+  pvc:
+    claimName: my-existing-pvc
+
+# host path (dev/testing only)
+workspace:
+  type: hostPath
+  hostPath:
+    path: /data/workspace
+```
+
+### Auth in Kubernetes
+
+Supply auth secrets separately from the chart values so they are not stored in plain text:
+
+```bash
+kubectl create secret generic my-agent-auth \
+  --from-literal=AUTH_ISSUER=https://idp.example.com \
+  --from-literal=AUTH_AUDIENCE=coding-agent \
+  --from-literal=AUTH_JWKS_URI=https://idp.example.com/.well-known/jwks.json
+
+helm install my-agent ./helm/coding-agent-a2a \
+  --set auth.enabled=true \
+  --set auth.existingSecret=my-agent-auth \
+  --set auth.oidcDiscoveryUrl=https://idp.example.com/.well-known/openid-configuration
+```
+
+### Enable OTEL in Kubernetes
+
+```yaml
+# my-values.yaml
+otel:
+  enabled: true
+  endpoint: http://otel-collector.monitoring:4318
+  serviceName: coding-agent-a2a
+```
+
+---
+
 ## Environment variables
+
+### Core
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -109,15 +288,24 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | `MCP_TRANSPORT` | `stdio` | `stdio` (Claude Desktop spawns the process) or `http` |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 | `CONFIG_FILE` | — | Path to a JSON config file; env vars always override file values |
-| `VIBE_BINARY_PATH` | `vibe` | Path to Vibe CLI binary |
-| `CODEX_BINARY_PATH` | `codex` | Path to Codex CLI binary |
-| `OPENCODE_BINARY_PATH` | `opencode` | Path to OpenCode CLI binary |
-| `AGENT_BINARY` | — | Path to custom binary (required for `generic` adapter) |
-| `AGENT_ARGS` | `""` | Default arguments for custom binary (double-quoted strings supported) |
-| `AGENT_APPROVAL_PATTERN` | — | Regex pattern to detect approval prompts (for `generic` adapter) |
-| `AGENT_APPROVAL_RESPONSE` | `y` | Response string for approval prompts (for `generic` adapter) |
 
-**Authentication variables** (all optional; only used when `AUTH_ENABLED=true`):
+### Adapter binary paths (optional overrides)
+
+| Variable | Default | Adapter |
+|----------|---------|---------|
+| `CURSOR_AGENT_PATH` | `cursor-agent` | `cursor` |
+| `CLAUDE_CODE_PATH` | `claude` | `claude-code` |
+| `VIBE_BINARY_PATH` | `vibe` | `vibe` |
+| `CODEX_BINARY_PATH` | `codex` | `codex` |
+| `OPENCODE_BINARY_PATH` | `opencode` | `opencode` |
+| `AGENT_BINARY` | — | `generic` (required) |
+| `AGENT_ARGS` | `""` | `generic` — default arguments |
+| `AGENT_APPROVAL_PATTERN` | — | `generic` — regex to detect approval prompts |
+| `AGENT_APPROVAL_RESPONSE` | `y` | `generic` — response string for approval prompts |
+
+### Authentication
+
+All optional; only used when `AUTH_ENABLED=true`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -133,9 +321,21 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | `AUTH_RESOURCE_URL` | `AUTH_SERVER_URL/mcp` | This server as Resource Server (RFC 9728) |
 | `AUTH_ALLOWED_REDIRECT_URIS` | — | Comma-separated allowed redirect URIs; if unset, IdP validates |
 
+### Observability
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `OTEL_ENABLED` | `false` | Enable OpenTelemetry traces and metrics |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | OTLP receiver URL (e.g. `http://otel-collector:4318`) |
+| `OTEL_SERVICE_NAME` | `unknown_service` | Service name in traces and metrics |
+| `OTEL_TRACES_SAMPLER` | `always_on` | Standard OTEL sampling strategy |
+| `OTEL_METRIC_EXPORT_INTERVAL` | `60000` | Metric push interval (ms) |
+
 Full configuration reference with validation rules: **[docs/deployment.md#configuration](docs/deployment.md#configuration)**.
 
-### Authentication
+---
+
+## Authentication
 
 By default (`AUTH_ENABLED=false`) all routes are open — suitable for local development and trusted-network deployments.
 
@@ -147,7 +347,7 @@ The `stdio` MCP path is never affected by auth (the process is spawned directly 
 
 The server mounts a full OAuth 2.0 proxy via the MCP SDK's `ProxyOAuthServerProvider`, so MCP clients (Claude Desktop, Claude Code) get standard `/.well-known/oauth-authorization-server` discovery and a complete Authorization Code + PKCE dance through to your IdP — without you implementing any OAuth logic.
 
-#### Quickest setup — OIDC discovery URL
+### Quickest setup — OIDC discovery URL
 
 ```bash
 AUTH_ENABLED=true
@@ -158,7 +358,7 @@ AUTH_AUDIENCE=coding-agent
 
 This auto-populates `AUTH_AUTHORIZATION_URL`, `AUTH_TOKEN_URL`, and `AUTH_JWKS_URI` from the IdP's discovery document at startup.
 
-#### Manual URL setup (no discovery URL)
+### Manual URL setup (no discovery URL)
 
 ```bash
 AUTH_ENABLED=true
@@ -169,9 +369,9 @@ AUTH_ISSUER=https://idp.example.com
 AUTH_AUDIENCE=coding-agent
 ```
 
-#### OAuth endpoints exposed by this server
+### OAuth endpoints exposed by this server
 
-When `AUTH_ENABLED=true`, the following endpoints are mounted automatically (no auth required on them — these are public metadata/proxy endpoints):
+When `AUTH_ENABLED=true`, the following endpoints are mounted automatically (no auth required — these are public metadata/proxy endpoints):
 
 | Endpoint | Description |
 |----------|-------------|
@@ -180,11 +380,88 @@ When `AUTH_ENABLED=true`, the following endpoints are mounted automatically (no 
 | `GET /authorize` | Proxies to IdP authorize endpoint |
 | `POST /token` | Proxies to IdP token endpoint |
 
-#### Production notes
+### Production notes
 
 - `AUTH_SERVER_URL` must be HTTPS in production (the MCP SDK enforces this). `localhost` is whitelisted for development.
 - Restrict redirect URIs with `AUTH_ALLOWED_REDIRECT_URIS` for public deployments; if unset, redirect URI validation is delegated to the IdP.
 - CORS is set to `*` on all auth/discovery endpoints (intentional — these serve public PKCE-protected flows). Use a reverse proxy (nginx, Caddy) if you need restricted CORS.
+
+---
+
+## Observability
+
+`coding-agent-a2a` has built-in [OpenTelemetry](https://opentelemetry.io) support for distributed tracing and metrics. It is **off by default** — set `OTEL_ENABLED=true` to activate it.
+
+### What is instrumented
+
+**Traces (spans)**
+
+| Span | What it covers | Key attributes |
+|------|----------------|----------------|
+| `POST /a2a/jsonrpc` | Full HTTP request (auto-instrumented) | `http.method`, `http.route`, `http.status_code` |
+| `POST /mcp` | Full HTTP request (auto-instrumented) | `http.method`, `http.route`, `http.status_code` |
+| `cli.execute` | Subprocess lifetime: from `spawn` to process exit | `agent.adapter`, `agent.repo_path`, `agent.exit_code`, `agent.input_tokens`, `agent.output_tokens`, `agent.duration_ms` |
+| `auth.verify_token` | JWT verification against JWKS | `auth.issuer`, `auth.success`, `auth.error` |
+
+**Metrics**
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `agent.tokens.input` | Counter | `adapter` | LLM input tokens consumed per task |
+| `agent.tokens.output` | Counter | `adapter` | LLM output tokens generated per task |
+| `agent.task.duration_ms` | Histogram | `adapter` | End-to-end CLI task duration in ms |
+| `agent.task.errors` | Counter | `adapter`, `error_kind` | Task errors (`spawn_error`, `nonzero_exit`) |
+
+> Token counts are reported by the CLI adapter in the `done` event. Not all adapters emit them; the counter stays at zero when unavailable.
+
+### Enable OTEL
+
+```bash
+OTEL_ENABLED=true \
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+OTEL_SERVICE_NAME=coding-agent-a2a \
+npm start
+```
+
+Any OTLP-compatible backend works: [Grafana Tempo](https://grafana.com/oss/tempo/), [Jaeger](https://www.jaegertracing.io/), [OpenTelemetry Collector](https://opentelemetry.io/docs/collector/), Honeycomb, Datadog, etc.
+
+### Quick local setup with Docker Compose
+
+```yaml
+# docker-compose.otel.yml
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP HTTP receiver
+
+  agent:
+    image: ghcr.io/carstendev/coding-agent-a2a:latest
+    environment:
+      AGENT_ADAPTER: generic
+      AGENT_BINARY: echo
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4318
+      OTEL_SERVICE_NAME: coding-agent-a2a
+    ports:
+      - "41242:41242"
+    depends_on: [jaeger]
+```
+
+```bash
+docker compose -f docker-compose.otel.yml up
+# Open http://localhost:16686 to explore traces
+```
+
+### Sampling
+
+Set `OTEL_TRACES_SAMPLER` to control trace volume. See the [OTEL SDK documentation](https://opentelemetry.io/docs/languages/sdk-configuration/general/#otel_traces_sampler) for all options:
+
+```bash
+OTEL_TRACES_SAMPLER=parentbased_traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1   # sample 10% of traces
+```
 
 ---
 
