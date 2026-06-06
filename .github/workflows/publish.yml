@@ -1,11 +1,13 @@
 name: Publish
 
-# Triggered by version tags: v1.2.3, v1.2.3-beta.1, etc.
-# Version is derived from the tag (setuptools-scm style) — package.json is not the source of truth.
+# Triggered by version tags: 1.2.3, 1.2.3-beta.1, v1.2.3, v1.2.3-beta.1, etc.
+# Version is derived from the tag — package.json is not the source of truth.
+# A leading "v" is stripped so the published version is always bare semver.
 on:
   push:
     tags:
       - 'v[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*'
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
