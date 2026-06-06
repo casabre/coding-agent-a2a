@@ -127,11 +127,11 @@ describe('loadConfig', () => {
 
   it('throws for invalid PORT value', async () => {
     process.env['PORT'] = 'not-a-number';
-    await expect(loadFreshConfig()).rejects.toThrow(/Invalid numeric/);
+    await expect(loadFreshConfig()).rejects.toThrow(/Invalid configuration/);
   });
 
   it('throws for negative PORT value', async () => {
     process.env['PORT'] = '-1';
-    await expect(loadFreshConfig()).rejects.toThrow(/Invalid numeric/);
+    await expect(loadFreshConfig()).rejects.toThrow(/Invalid configuration/);
   });
 });
