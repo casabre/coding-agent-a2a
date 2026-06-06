@@ -3,7 +3,7 @@ import type { Config } from './types.js';
 import type { CodingAgentAdapter } from './adapters/base.js';
 
 export function buildAgentCard(config: Config, adapter: CodingAgentAdapter): AgentCard {
-  return {
+  const card: AgentCard = {
     name: `coding-agent-a2a (${adapter.name})`,
     description: `Delegates coding tasks to the ${adapter.name} agent and streams results back via the A2A protocol.`,
     protocolVersion: '0.3.0',
@@ -33,4 +33,25 @@ export function buildAgentCard(config: Config, adapter: CodingAgentAdapter): Age
       },
     ],
   };
+
+  // AgentCard.securitySchemes is supported in @a2a-js/sdk v0.3.13
+  if (config.authEnabled && config.authServerUrl) {
+    card.securitySchemes = {
+      oauth2: {
+        type: 'oauth2',
+        flows: {
+          authorizationCode: {
+            authorizationUrl: config.authAuthorizationUrl ?? `${config.authServerUrl}/authorize`,
+            tokenUrl: config.authTokenUrl ?? `${config.authServerUrl}/token`,
+            scopes: Object.fromEntries(
+              (config.authRequiredScopes ?? []).map((s) => [s, s]),
+            ),
+          },
+        },
+      },
+    };
+    card.security = [{ oauth2: config.authRequiredScopes ?? [] }];
+  }
+
+  return card;
 }

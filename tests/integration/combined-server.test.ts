@@ -65,7 +65,7 @@ function makeMessage(text: string) {
 }
 
 async function startServer(config = baseConfig): Promise<{ server: http.Server; port: number }> {
-  const app = createCombinedApp(config, mockAdapter, makeCompletingA2AExecutor());
+  const app = createCombinedApp(config, mockAdapter, { executor: makeCompletingA2AExecutor() });
   const server = http.createServer(app);
   await new Promise<void>((resolve) => server.listen(0, resolve));
   const addr = server.address() as { port: number };
@@ -75,14 +75,14 @@ async function startServer(config = baseConfig): Promise<{ server: http.Server; 
 describe('Combined server (A2A + MCP/HTTP)', () => {
   describe('A2A surface still works', () => {
     it('GET /.well-known/agent-card.json returns 200', async () => {
-      const app = createCombinedApp(baseConfig, mockAdapter, makeCompletingA2AExecutor());
+      const app = createCombinedApp(baseConfig, mockAdapter, { executor: makeCompletingA2AExecutor() });
       const res = await request(app).get('/.well-known/agent-card.json');
       expect(res.status).toBe(200);
       expect(res.body.skills).toBeDefined();
     });
 
     it('message/send returns a result', async () => {
-      const app = createCombinedApp(baseConfig, mockAdapter, makeCompletingA2AExecutor());
+      const app = createCombinedApp(baseConfig, mockAdapter, { executor: makeCompletingA2AExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .send(jsonRpc('message/send', { message: makeMessage('hello'), configuration: { blocking: true } }));

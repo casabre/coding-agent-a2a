@@ -149,7 +149,7 @@ describe('HTTP server', () => {
 
   describe('GET /.well-known/agent-card.json', () => {
     it('returns 200 with agent card JSON', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app).get('/.well-known/agent-card.json');
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
@@ -163,7 +163,7 @@ describe('HTTP server', () => {
 
   describe('POST /a2a/jsonrpc — invalid requests', () => {
     it('returns 400 for invalid JSON body', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .set('Content-Type', 'application/json')
@@ -172,7 +172,7 @@ describe('HTTP server', () => {
     });
 
     it('returns JSON-RPC error for unknown method', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .send(jsonRpc('unknown/method', {}));
@@ -183,7 +183,7 @@ describe('HTTP server', () => {
 
   describe('message/send', () => {
     it('returns a task or message result', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .send(jsonRpc('message/send', { message: makeMessage('hello'), configuration: { blocking: true } }));
@@ -194,7 +194,7 @@ describe('HTTP server', () => {
 
   describe('message/stream', () => {
     it('responds with text/event-stream content-type', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const server = http.createServer(app);
       await new Promise<void>((resolve) => server.listen(0, resolve));
       const addr = server.address() as { port: number };
@@ -221,7 +221,7 @@ describe('HTTP server', () => {
         { kind: 'status-update', taskId: '', contextId: '', final: false, status: { state: 'working' } },
         { kind: 'status-update', taskId: '', contextId: '', final: true, status: { state: 'completed' } },
       ];
-      const app = createApp(baseConfig, mockAdapter, makeStreamingExecutor(streamEvents));
+      const app = createApp(baseConfig, mockAdapter, { executor: makeStreamingExecutor(streamEvents) });
       const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hello') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
@@ -243,7 +243,7 @@ describe('HTTP server', () => {
         },
         { kind: 'status-update', taskId: '', contextId: '', final: true, status: { state: 'completed' } },
       ];
-      const app = createApp(baseConfig, mockAdapter, makeStreamingExecutor(streamEvents));
+      const app = createApp(baseConfig, mockAdapter, { executor: makeStreamingExecutor(streamEvents) });
       const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hi') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
@@ -252,7 +252,7 @@ describe('HTTP server', () => {
     });
 
     it('stream ends with failed status when executor fails', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeFailingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeFailingExecutor() });
       const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hi') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
@@ -263,7 +263,7 @@ describe('HTTP server', () => {
 
   describe('tasks/get', () => {
     it('returns task not found error for unknown taskId', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .send(jsonRpc('tasks/get', { id: 'nonexistent-task-id' }));
@@ -272,7 +272,7 @@ describe('HTTP server', () => {
     });
 
     it('returns task for known taskId after message/send', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
 
       const sendRes = await request(app)
         .post('/a2a/jsonrpc')
@@ -291,7 +291,7 @@ describe('HTTP server', () => {
 
   describe('tasks/cancel', () => {
     it('returns error for unknown task id', async () => {
-      const app = createApp(baseConfig, mockAdapter, makeCompletingExecutor());
+      const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .send(jsonRpc('tasks/cancel', { id: 'nonexistent-task' }));
@@ -303,7 +303,7 @@ describe('HTTP server', () => {
   describe('concurrent requests', () => {
     it('handles multiple simultaneous message/send calls', async () => {
       const executor = makeCompletingExecutor();
-      const app = createApp(baseConfig, mockAdapter, executor);
+      const app = createApp(baseConfig, mockAdapter, { executor });
 
       const [res1, res2] = await Promise.all([
         request(app).post('/a2a/jsonrpc').send(jsonRpc('message/send', { message: makeMessage('task 1'), configuration: { blocking: true } }, 1)),

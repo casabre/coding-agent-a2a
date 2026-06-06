@@ -5,18 +5,17 @@ import { createMcpServer } from './mcp/server.js';
 import { startStdioTransport } from './mcp/stdio-transport.js';
 import { assertBinaryAccessible } from './binary-check.js';
 
-const config = (() => {
+async function main() {
+  let config;
   try {
-    return loadConfig();
+    config = await loadConfig();
   } catch (err) {
     console.error(`[coding-agent-a2a] Configuration error: ${String(err)}`);
     process.exit(1);
   }
-})();
 
-const adapter = resolveAdapter(config.agentAdapter);
+  const adapter = resolveAdapter(config.agentAdapter);
 
-void (async () => {
   try {
     await assertBinaryAccessible(adapter.resolveBinary());
   } catch (err) {
@@ -43,4 +42,9 @@ void (async () => {
     const { server: mcpServer } = createMcpServer(adapter, config);
     void startStdioTransport(mcpServer);
   }
-})();
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
