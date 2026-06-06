@@ -86,7 +86,7 @@ describe('parseSharedNdjsonEvent', () => {
       const event = parseSharedNdjsonEvent(
         JSON.stringify({ type: 'tool_result', tool_use_id: 'u1', content: 'file contents' }),
       );
-      expect(event).toEqual({ kind: 'tool_result', tool: '', output: 'file contents', isError: false });
+      expect(event).toEqual({ kind: 'tool_result', tool: 'u1', output: 'file contents', isError: false });
     });
 
     it('maps array content blocks to tool_result event', () => {
@@ -97,7 +97,7 @@ describe('parseSharedNdjsonEvent', () => {
           content: [{ type: 'text', text: 'result text' }],
         }),
       );
-      expect(event).toEqual({ kind: 'tool_result', tool: '', output: 'result text', isError: false });
+      expect(event).toEqual({ kind: 'tool_result', tool: 'u1', output: 'result text', isError: false });
     });
   });
 

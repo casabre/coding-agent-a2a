@@ -12,11 +12,31 @@ describe('resolveAdapter', () => {
     expect(adapter.name).toBe('claude-code');
   });
 
+  it('resolves vibe adapter by name', () => {
+    const adapter = resolveAdapter('vibe');
+    expect(adapter.name).toBe('vibe');
+  });
+
+  it('resolves codex adapter by name', () => {
+    const adapter = resolveAdapter('codex');
+    expect(adapter.name).toBe('codex');
+  });
+
+  it('resolves opencode adapter by name', () => {
+    const adapter = resolveAdapter('opencode');
+    expect(adapter.name).toBe('opencode');
+  });
+
+  it('resolves generic adapter by name', () => {
+    const adapter = resolveAdapter('generic');
+    expect(adapter.name).toBe('generic');
+  });
+
   it('throws for unknown adapter name', () => {
     expect(() => resolveAdapter('unknown-agent')).toThrow(/"unknown-agent"/);
   });
 
   it('error message lists available adapters', () => {
-    expect(() => resolveAdapter('codex')).toThrow(/cursor/);
+    expect(() => resolveAdapter('nonexistent')).toThrow(/cursor/);
   });
 });

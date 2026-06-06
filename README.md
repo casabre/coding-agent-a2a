@@ -19,6 +19,10 @@ Both protocols share the same underlying adapter, runner, and process-lifecycle 
 - One supported CLI on your `PATH` (or set the path explicitly via env var):
   - `cursor-agent` — [Cursor](https://cursor.sh) agent CLI
   - `claude` — [Claude Code](https://claude.ai/code) CLI
+  - `vibe` — [Mistral Vibe](https://docs.mistral.ai/mistral-vibe/terminal) CLI
+  - `codex` — [Codex](https://codex.sh) CLI
+  - `opencode` — [OpenCode](https://github.com/saoudrizwan/OpenCode) CLI
+  - Any custom CLI via the `generic` adapter
 
 ### Install and run
 
@@ -66,10 +70,10 @@ graph TB
         A2ARoute["POST /a2a/jsonrpc\nA2A layer"]
         MCPRoute["stdio or /mcp\nMCP layer"]
         Runner["CursorRunner\nspawn + NDJSON parse"]
-        Adapters["Adapters\ncursor  ·  claude-code"]
+        Adapters["Adapters\ncursor  ·  claude-code  ·  vibe  ·  codex  ·  opencode  ·  generic"]
     end
 
-    CLI["cursor-agent  or  claude"]
+    CLI["cursor-agent  or  claude  or  vibe  or  codex  or  opencode"]
 
     MCPHost   -->|"stdio / HTTP"| MCPRoute
     A2AClient -->|"JSON-RPC + SSE"| A2ARoute
@@ -88,7 +92,7 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `41242` | HTTP port (A2A and, when `MCP_TRANSPORT=http`, MCP) |
-| `AGENT_ADAPTER` | `cursor` | `cursor` or `claude-code` |
+| `AGENT_ADAPTER` | `cursor` | `cursor` or `claude-code` or `vibe` or `codex` or `opencode` or `generic` |
 | `AGENT_MODEL` | — | Model override forwarded to the CLI |
 | `AGENT_TIMEOUT_MS` | `120000` | Hard timeout per task (ms); `0` = disabled |
 | `AGENT_IDLE_EXIT_MS` | `0` | Kill if no stdout for this long (ms); `0` = disabled |
@@ -96,8 +100,53 @@ For a detailed component breakdown, design decisions, and event-flow diagrams, s
 | `AGENT_REPO_PATH` | `.` | Working directory passed to the CLI as `cwd` |
 | `MCP_TRANSPORT` | `stdio` | `stdio` (Claude Desktop spawns the process) or `http` |
 | `LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
+| `VIBE_BINARY_PATH` | `vibe` | Path to Vibe CLI binary |
+| `CODEX_BINARY_PATH` | `codex` | Path to Codex CLI binary |
+| `OPENCODE_BINARY_PATH` | `opencode` | Path to OpenCode CLI binary |
+| `AGENT_BINARY` | — | Path to custom binary (required for `generic` adapter) |
+| `AGENT_ARGS` | `""` | Default arguments for custom binary |
+| `AGENT_APPROVAL_PATTERN` | — | Regex pattern to detect approval prompts (for `generic` adapter) |
+| `AGENT_APPROVAL_RESPONSE` | `y` | Response string for approval prompts (for `generic` adapter) |
 
 Full configuration reference with validation rules: **[docs/deployment.md#configuration](docs/deployment.md#configuration)**.
+
+### Using Different Adapters
+
+#### Vibe CLI
+```bash
+export AGENT_ADAPTER=vibe
+export VIBE_BINARY_PATH=/path/to/vibe  # Optional, defaults to "vibe"
+export AGENT_REPO_PATH=/path/to/repo
+npm start
+```
+
+#### Codex CLI
+```bash
+export AGENT_ADAPTER=codex
+export CODEX_BINARY_PATH=/path/to/codex  # Optional, defaults to "codex"
+export AGENT_REPO_PATH=/path/to/repo
+npm start
+```
+
+#### OpenCode CLI
+```bash
+export AGENT_ADAPTER=opencode
+export OPENCODE_BINARY_PATH=/path/to/opencode  # Optional, defaults to "opencode"
+export AGENT_REPO_PATH=/path/to/repo
+npm start
+```
+
+#### Custom CLI (Generic Adapter)
+```bash
+export AGENT_ADAPTER=generic
+export AGENT_BINARY=/path/to/your-agent  # Required
+export AGENT_ARGS="--stream --model my-model"  # Optional: default args
+export AGENT_APPROVAL_PATTERN="\[Y\/n\]"  # Optional: custom approval pattern
+export AGENT_APPROVAL_RESPONSE="yes"  # Optional: custom approval response
+npm start
+```
+
+> **Note:** The `generic` adapter assumes your CLI produces NDJSON-compatible streaming output. All built-in adapters (`cursor`, `claude-code`, `vibe`, `codex`, `opencode`) use the same NDJSON event parser.
 
 ---
 

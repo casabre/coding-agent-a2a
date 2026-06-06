@@ -76,7 +76,7 @@ export function parseSharedNdjsonEvent(line: string): AgentEvent | null {
     }
     case 'tool_result': {
       const e = raw as RawToolResult;
-      return { kind: 'tool_result', tool: '', output: extractText(e.content), isError: false };
+      return { kind: 'tool_result', tool: e.tool_use_id, output: extractText(e.content), isError: false };
     }
     case 'result': {
       const e = raw as RawResult;

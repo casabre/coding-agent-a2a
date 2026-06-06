@@ -47,6 +47,7 @@ export class CursorRunner extends EventEmitter {
   private _timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private _idleHandle: ReturnType<typeof setTimeout> | null = null;
   private _stderrBuffer = '';
+  private _lastThinkingText = '';
   private readonly _options: RunnerOptions;
 
   constructor(options: RunnerOptions) {
@@ -171,7 +172,11 @@ export class CursorRunner extends EventEmitter {
     }
     const event = adapter.parseEvent(line);
     if (event !== null) {
-      this.emit('agent-event', event);
+      if (event.kind === 'thinking') {
+        this._lastThinkingText = event.text;
+      }
+      const emitted = event.kind === 'done' ? { ...event, summary: this._lastThinkingText } : event;
+      this.emit('agent-event', emitted);
     } else if (config.logLevel === 'debug') {
       console.warn(`[runner] Unparsed line (skipped): ${line.slice(0, 80)}`);
     }

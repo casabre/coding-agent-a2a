@@ -1,17 +1,24 @@
 import type { CodingAgentAdapter } from './base.js';
 import { CursorAdapter } from './cursor.js';
 import { ClaudeCodeAdapter } from './claude-code.js';
+import { VibeAdapter } from './vibe.js';
+import { CodexAdapter } from './codex.js';
+import { OpenCodeAdapter } from './opencode.js';
+import { GenericAdapter } from './generic.js';
 
-// TODO: add 'codex' adapter here when implemented
 const registry: Record<string, CodingAgentAdapter> = {
   cursor: new CursorAdapter(),
   'claude-code': new ClaudeCodeAdapter(),
+  vibe: new VibeAdapter(),
+  codex: new CodexAdapter(),
+  opencode: new OpenCodeAdapter(),
+  generic: new GenericAdapter(),
 };
 
 /**
  * Looks up a registered {@link CodingAgentAdapter} by name.
  *
- * @param name - Adapter identifier (e.g. `"cursor"`, `"claude-code"`). Case-sensitive.
+ * @param name - Adapter identifier (e.g. `"cursor"`, `"claude-code"`, `"vibe"`, `"codex"`, `"opencode"`, `"generic"`). Case-sensitive.
  * @throws {Error} If `name` is not in the registry.
  */
 export function resolveAdapter(name: string): CodingAgentAdapter {
