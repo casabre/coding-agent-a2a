@@ -55,7 +55,13 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main
           git checkout main
-          npm version "${{ steps.version.outputs.value }}" --no-git-tag-version
+          CURRENT="$(node -p "require('./package.json').version")"
+          NEW="${{ steps.version.outputs.value }}"
+          if [ "$CURRENT" = "$NEW" ]; then
+            echo "package.json already at $CURRENT — skipping commit"
+            exit 0
+          fi
+          npm version "$NEW" --no-git-tag-version
           git add package.json package-lock.json
-          git commit -m "chore: bump version to ${{ steps.version.outputs.value }}"
+          git commit -m "chore: bump version to $NEW"
           git push origin main
