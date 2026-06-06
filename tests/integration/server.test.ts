@@ -2,12 +2,15 @@ import { describe, it, expect, vi } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from '@a2a-js/sdk/server';
-import type { TaskStatusUpdateEvent, TaskArtifactUpdateEvent, Task } from '@a2a-js/sdk';
+import { AgentEvent } from '@a2a-js/sdk/server';
+import { TaskState } from '@a2a-js/sdk';
 import type { Config } from '../../src/types.js';
 import type { CodingAgentAdapter } from '../../src/adapters/base.js';
 import { createApp } from '../../src/server.js';
 import * as http from 'node:http';
 import { v4 as uuidv4 } from 'uuid';
+
+const A2A_VERSION = '1.0';
 
 const baseConfig: Config = {
   port: 41243,
@@ -31,37 +34,36 @@ const mockAdapter: CodingAgentAdapter = {
   approvalResponse: vi.fn(() => 'y'),
 };
 
-function initTask(ctx: RequestContext): Task {
-  return {
-    kind: 'task',
+function initTask(ctx: RequestContext) {
+  return AgentEvent.task({
     id: ctx.taskId,
     contextId: ctx.contextId,
-    status: { state: 'working', timestamp: new Date().toISOString() },
+    status: { state: TaskState.TASK_STATE_SUBMITTED, timestamp: new Date().toISOString(), message: undefined },
+    artifacts: [],
     history: [],
-  } as unknown as Task;
+    metadata: undefined,
+  });
 }
 
 function makeCompletingExecutor(): AgentExecutor {
   return {
     execute: vi.fn(async (ctx: RequestContext, bus: ExecutionEventBus) => {
       bus.publish(initTask(ctx));
-      bus.publish({
-        kind: 'status-update',
+      bus.publish(AgentEvent.statusUpdate({
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        final: true,
-        status: { state: 'completed', timestamp: new Date().toISOString() },
-      } as TaskStatusUpdateEvent);
+        status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
+        metadata: undefined,
+      }));
       bus.finished();
     }),
     cancelTask: vi.fn(async (taskId: string, bus: ExecutionEventBus) => {
-      bus.publish({
-        kind: 'status-update',
+      bus.publish(AgentEvent.statusUpdate({
         taskId,
         contextId: taskId,
-        final: true,
-        status: { state: 'canceled', timestamp: new Date().toISOString() },
-      } as TaskStatusUpdateEvent);
+        status: { state: TaskState.TASK_STATE_CANCELED, timestamp: new Date().toISOString(), message: undefined },
+        metadata: undefined,
+      }));
       bus.finished();
     }),
   };
@@ -71,25 +73,28 @@ function makeFailingExecutor(): AgentExecutor {
   return {
     execute: vi.fn(async (ctx: RequestContext, bus: ExecutionEventBus) => {
       bus.publish(initTask(ctx));
-      bus.publish({
-        kind: 'status-update',
+      bus.publish(AgentEvent.statusUpdate({
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        final: true,
-        status: { state: 'failed', timestamp: new Date().toISOString() },
-      } as TaskStatusUpdateEvent);
+        status: { state: TaskState.TASK_STATE_FAILED, timestamp: new Date().toISOString(), message: undefined },
+        metadata: undefined,
+      }));
       bus.finished();
     }),
     cancelTask: vi.fn(async () => {}),
   };
 }
 
-function makeStreamingExecutor(events: Array<TaskStatusUpdateEvent | TaskArtifactUpdateEvent>): AgentExecutor {
+function makeStreamingExecutor(events: ReturnType<typeof AgentEvent.statusUpdate | typeof AgentEvent.artifactUpdate>[]): AgentExecutor {
   return {
     execute: vi.fn(async (ctx: RequestContext, bus: ExecutionEventBus) => {
       bus.publish(initTask(ctx));
       for (const event of events) {
-        bus.publish({ ...event, taskId: ctx.taskId, contextId: ctx.contextId });
+        if (event.kind === 'statusUpdate') {
+          bus.publish(AgentEvent.statusUpdate({ ...event.data, taskId: ctx.taskId, contextId: ctx.contextId }));
+        } else if (event.kind === 'artifactUpdate') {
+          bus.publish(AgentEvent.artifactUpdate({ ...event.data, taskId: ctx.taskId, contextId: ctx.contextId }));
+        }
       }
       bus.finished();
     }),
@@ -103,10 +108,9 @@ function jsonRpc(method: string, params: Record<string, unknown>, id: number | s
 
 function makeMessage(text: string) {
   return {
-    kind: 'message',
     messageId: uuidv4(),
-    role: 'user',
-    parts: [{ kind: 'text', text }],
+    role: 'ROLE_USER',
+    parts: [{ text }],
   };
 }
 
@@ -130,6 +134,7 @@ async function collectSseLines(app: Express, body: Record<string, unknown>): Pro
       );
       req.setHeader('Content-Type', 'application/json');
       req.setHeader('Accept', 'text/event-stream');
+      req.setHeader('A2A-Version', A2A_VERSION);
       req.write(JSON.stringify(body));
       req.end();
       req.on('error', reject);
@@ -154,7 +159,9 @@ describe('HTTP server', () => {
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({
         name: expect.stringContaining('mock'),
-        url: expect.stringContaining('localhost'),
+        supportedInterfaces: expect.arrayContaining([
+          expect.objectContaining({ protocolVersion: '1.0' }),
+        ]),
         skills: expect.arrayContaining([expect.objectContaining({ id: 'code-task' })]),
         capabilities: expect.objectContaining({ streaming: true }),
       });
@@ -167,6 +174,7 @@ describe('HTTP server', () => {
       const res = await request(app)
         .post('/a2a/jsonrpc')
         .set('Content-Type', 'application/json')
+        .set('A2A-Version', A2A_VERSION)
         .send('not-valid-json');
       expect(res.status).toBe(400);
     });
@@ -175,24 +183,26 @@ describe('HTTP server', () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
+        .set('A2A-Version', A2A_VERSION)
         .send(jsonRpc('unknown/method', {}));
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ jsonrpc: '2.0', error: expect.objectContaining({ code: expect.any(Number) }) });
     });
   });
 
-  describe('message/send', () => {
-    it('returns a task or message result', async () => {
+  describe('SendMessage', () => {
+    it('returns a task result', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
-        .send(jsonRpc('message/send', { message: makeMessage('hello'), configuration: { blocking: true } }));
+        .set('A2A-Version', A2A_VERSION)
+        .send(jsonRpc('SendMessage', { message: makeMessage('hello'), configuration: { returnImmediately: false } }));
       expect(res.status).toBe(200);
       expect(res.body.result).toBeDefined();
     });
   });
 
-  describe('message/stream', () => {
+  describe('SendStreamingMessage', () => {
     it('responds with text/event-stream content-type', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const server = http.createServer(app);
@@ -210,104 +220,116 @@ describe('HTTP server', () => {
         );
         req.setHeader('Content-Type', 'application/json');
         req.setHeader('Accept', 'text/event-stream');
-        req.write(JSON.stringify(jsonRpc('message/stream', { message: makeMessage('hello') })));
+        req.setHeader('A2A-Version', A2A_VERSION);
+        req.write(JSON.stringify(jsonRpc('SendStreamingMessage', { message: makeMessage('hello') })));
         req.end();
         req.on('error', (e) => { if ((e as NodeJS.ErrnoException).code !== 'ECONNRESET') reject(e); });
       });
     });
 
     it('streams working → completed events', async () => {
-      const streamEvents: TaskStatusUpdateEvent[] = [
-        { kind: 'status-update', taskId: '', contextId: '', final: false, status: { state: 'working' } },
-        { kind: 'status-update', taskId: '', contextId: '', final: true, status: { state: 'completed' } },
+      const streamEvents = [
+        AgentEvent.statusUpdate({ taskId: '', contextId: '', status: { state: TaskState.TASK_STATE_WORKING, timestamp: new Date().toISOString(), message: undefined }, metadata: undefined }),
+        AgentEvent.statusUpdate({ taskId: '', contextId: '', status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined }, metadata: undefined }),
       ];
       const app = createApp(baseConfig, mockAdapter, { executor: makeStreamingExecutor(streamEvents) });
-      const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hello') }));
+      const lines = await collectSseLines(app, jsonRpc('SendStreamingMessage', { message: makeMessage('hello') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
       const hasWorking = parsed.some(
-        (p) => p.result?.status?.state === 'working' || p.result?.kind === 'task',
+        (p) => p.result?.statusUpdate?.status?.state === 'TASK_STATE_WORKING' || p.result?.task !== undefined,
       );
-      const hasCompleted = parsed.some((p) => p.result?.status?.state === 'completed');
+      const hasCompleted = parsed.some(
+        (p) => p.result?.statusUpdate?.status?.state === 'TASK_STATE_COMPLETED' || p.result?.task?.status?.state === 'TASK_STATE_COMPLETED',
+      );
       expect(hasWorking || hasCompleted).toBe(true);
       expect(hasCompleted).toBe(true);
     });
 
     it('streams artifact-update events', async () => {
-      const streamEvents: Array<TaskStatusUpdateEvent | TaskArtifactUpdateEvent> = [
-        {
-          kind: 'artifact-update',
+      const streamEvents = [
+        AgentEvent.artifactUpdate({
           taskId: '',
           contextId: '',
-          artifact: { artifactId: 'a1', name: 'test', parts: [{ kind: 'text', text: 'hello world' }] },
-        },
-        { kind: 'status-update', taskId: '', contextId: '', final: true, status: { state: 'completed' } },
+          artifact: { artifactId: 'a1', name: 'test', description: '', parts: [{ content: { $case: 'text', value: 'hello world' }, filename: '', mediaType: '', metadata: undefined }], metadata: undefined, extensions: [] },
+          append: false,
+          lastChunk: true,
+          metadata: undefined,
+        }),
+        AgentEvent.statusUpdate({ taskId: '', contextId: '', status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined }, metadata: undefined }),
       ];
       const app = createApp(baseConfig, mockAdapter, { executor: makeStreamingExecutor(streamEvents) });
-      const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hi') }));
+      const lines = await collectSseLines(app, jsonRpc('SendStreamingMessage', { message: makeMessage('hi') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
-      const hasArtifact = parsed.some((p) => p.result?.kind === 'artifact-update');
+      const hasArtifact = parsed.some((p) => p.result?.artifactUpdate !== undefined);
       expect(hasArtifact).toBe(true);
     });
 
     it('stream ends with failed status when executor fails', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeFailingExecutor() });
-      const lines = await collectSseLines(app, jsonRpc('message/stream', { message: makeMessage('hi') }));
+      const lines = await collectSseLines(app, jsonRpc('SendStreamingMessage', { message: makeMessage('hi') }));
 
       const parsed = lines.map((l) => JSON.parse(l.slice('data: '.length)));
-      const hasFailed = parsed.some((p) => p.result?.status?.state === 'failed');
+      const hasFailed = parsed.some(
+        (p) => p.result?.statusUpdate?.status?.state === 'TASK_STATE_FAILED' || p.result?.task?.status?.state === 'TASK_STATE_FAILED',
+      );
       expect(hasFailed).toBe(true);
     });
   });
 
-  describe('tasks/get', () => {
+  describe('GetTask', () => {
     it('returns task not found error for unknown taskId', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
-        .send(jsonRpc('tasks/get', { id: 'nonexistent-task-id' }));
+        .set('A2A-Version', A2A_VERSION)
+        .send(jsonRpc('GetTask', { id: 'nonexistent-task-id' }));
       expect(res.status).toBe(200);
       expect(res.body.error).toBeDefined();
     });
 
-    it('returns task for known taskId after message/send', async () => {
+    it('returns task for known taskId after SendMessage', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
 
       const sendRes = await request(app)
         .post('/a2a/jsonrpc')
-        .send(jsonRpc('message/send', { message: makeMessage('hello'), configuration: { blocking: true } }));
+        .set('A2A-Version', A2A_VERSION)
+        .send(jsonRpc('SendMessage', { message: makeMessage('hello'), configuration: { returnImmediately: false } }));
 
       const result = sendRes.body.result;
-      if (result?.id) {
+      const taskId = result?.task?.id ?? result?.id;
+      if (taskId) {
         const getRes = await request(app)
           .post('/a2a/jsonrpc')
-          .send(jsonRpc('tasks/get', { id: result.id }));
+          .set('A2A-Version', A2A_VERSION)
+          .send(jsonRpc('GetTask', { id: taskId }));
         expect(getRes.status).toBe(200);
         expect(getRes.body.result).toBeDefined();
       }
     });
   });
 
-  describe('tasks/cancel', () => {
+  describe('CancelTask', () => {
     it('returns error for unknown task id', async () => {
       const app = createApp(baseConfig, mockAdapter, { executor: makeCompletingExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
-        .send(jsonRpc('tasks/cancel', { id: 'nonexistent-task' }));
+        .set('A2A-Version', A2A_VERSION)
+        .send(jsonRpc('CancelTask', { id: 'nonexistent-task' }));
       expect(res.status).toBe(200);
       expect(res.body).toMatchObject({ jsonrpc: '2.0' });
     });
   });
 
   describe('concurrent requests', () => {
-    it('handles multiple simultaneous message/send calls', async () => {
+    it('handles multiple simultaneous SendMessage calls', async () => {
       const executor = makeCompletingExecutor();
       const app = createApp(baseConfig, mockAdapter, { executor });
 
       const [res1, res2] = await Promise.all([
-        request(app).post('/a2a/jsonrpc').send(jsonRpc('message/send', { message: makeMessage('task 1'), configuration: { blocking: true } }, 1)),
-        request(app).post('/a2a/jsonrpc').send(jsonRpc('message/send', { message: makeMessage('task 2'), configuration: { blocking: true } }, 2)),
+        request(app).post('/a2a/jsonrpc').set('A2A-Version', A2A_VERSION).send(jsonRpc('SendMessage', { message: makeMessage('task 1'), configuration: { returnImmediately: false } }, 1)),
+        request(app).post('/a2a/jsonrpc').set('A2A-Version', A2A_VERSION).send(jsonRpc('SendMessage', { message: makeMessage('task 2'), configuration: { returnImmediately: false } }, 2)),
       ]);
 
       expect(res1.status).toBe(200);

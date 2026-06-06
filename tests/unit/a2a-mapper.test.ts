@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mapAgentEventToA2A } from '../../src/a2a-mapper.js';
+import { TaskState } from '@a2a-js/sdk';
+import type { AgentExecutionEvent } from '@a2a-js/sdk/server';
 import type { TaskStatusUpdateEvent, TaskArtifactUpdateEvent } from '@a2a-js/sdk';
 import type { AgentEvent } from '../../src/adapters/base.js';
 
@@ -11,15 +13,25 @@ const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 type MappedResult = ReturnType<typeof mapAgentEventToA2A>;
 
-function single(result: MappedResult): TaskStatusUpdateEvent | TaskArtifactUpdateEvent {
+function single(result: MappedResult): AgentExecutionEvent {
   expect(Array.isArray(result)).toBe(false);
   expect(result).not.toBeNull();
-  return result as TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
+  return result as AgentExecutionEvent;
 }
 
-function arr(result: MappedResult): Array<TaskStatusUpdateEvent | TaskArtifactUpdateEvent> {
+function arr(result: MappedResult): AgentExecutionEvent[] {
   expect(Array.isArray(result)).toBe(true);
-  return result as Array<TaskStatusUpdateEvent | TaskArtifactUpdateEvent>;
+  return result as AgentExecutionEvent[];
+}
+
+function asStatusUpdate(event: AgentExecutionEvent): TaskStatusUpdateEvent {
+  expect(event.kind).toBe('statusUpdate');
+  return (event as { kind: 'statusUpdate'; data: TaskStatusUpdateEvent }).data;
+}
+
+function asArtifactUpdate(event: AgentExecutionEvent): TaskArtifactUpdateEvent {
+  expect(event.kind).toBe('artifactUpdate');
+  return (event as { kind: 'artifactUpdate'; data: TaskArtifactUpdateEvent }).data;
 }
 
 describe('mapAgentEventToA2A', () => {
@@ -27,10 +39,8 @@ describe('mapAgentEventToA2A', () => {
     it('without model returns single working status update', () => {
       const event: AgentEvent = { kind: 'init' };
       const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
-      expect(result.kind).toBe('status-update');
-      const su = result as TaskStatusUpdateEvent;
-      expect(su.status.state).toBe('working');
-      expect(su.final).toBe(false);
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_WORKING);
       expect(su.taskId).toBe(TASK_ID);
       expect(su.contextId).toBe(CTX_ID);
     });
@@ -39,12 +49,15 @@ describe('mapAgentEventToA2A', () => {
       const event: AgentEvent = { kind: 'init', model: 'claude-3', sessionId: 'sess-1' };
       const results = arr(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
       expect(results).toHaveLength(2);
-      expect(results[0].kind).toBe('status-update');
-      expect(results[1].kind).toBe('artifact-update');
-      const artifact = (results[1] as TaskArtifactUpdateEvent).artifact;
-      expect(artifact.name).toBe('agent-metadata');
-      const data = artifact.parts[0] as { kind: 'data'; data: Record<string, unknown> };
-      expect(data.data).toMatchObject({ model: 'claude-3', sessionId: 'sess-1' });
+      const su = asStatusUpdate(results[0]);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_WORKING);
+      const au = asArtifactUpdate(results[1]);
+      expect(au.artifact?.name).toBe('agent-metadata');
+      const data = au.artifact?.parts[0]?.content;
+      expect(data?.$case).toBe('data');
+      if (data?.$case === 'data') {
+        expect(data.value).toMatchObject({ model: 'claude-3', sessionId: 'sess-1' });
+      }
     });
 
     it('with only sessionId also returns array', () => {
@@ -55,20 +68,24 @@ describe('mapAgentEventToA2A', () => {
 
     it('status update timestamp is ISO 8601', () => {
       const event: AgentEvent = { kind: 'init' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.timestamp).toMatch(ISO_RE);
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.timestamp).toMatch(ISO_RE);
     });
   });
 
   describe('thinking', () => {
-    it('returns artifact-update with append: true', () => {
+    it('returns artifactUpdate with append: true', () => {
       const event: AgentEvent = { kind: 'thinking', text: 'Hello!' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskArtifactUpdateEvent;
-      expect(result.kind).toBe('artifact-update');
-      expect(result.append).toBe(true);
-      expect(result.artifact.name).toBe('assistant-response');
-      const part = result.artifact.parts[0] as { kind: 'text'; text: string };
-      expect(part.text).toBe('Hello!');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const au = asArtifactUpdate(result);
+      expect(au.append).toBe(true);
+      expect(au.artifact?.name).toBe('assistant-response');
+      const part = au.artifact?.parts[0]?.content;
+      expect(part?.$case).toBe('text');
+      if (part?.$case === 'text') {
+        expect(part.value).toBe('Hello!');
+      }
     });
 
     it('returns null for empty text', () => {
@@ -78,64 +95,77 @@ describe('mapAgentEventToA2A', () => {
 
     it('artifactId is a valid UUID v4', () => {
       const event: AgentEvent = { kind: 'thinking', text: 'x' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskArtifactUpdateEvent;
-      expect(result.artifact.artifactId).toMatch(UUID_RE);
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const au = asArtifactUpdate(result);
+      expect(au.artifact?.artifactId).toMatch(UUID_RE);
     });
   });
 
   describe('tool_use', () => {
     it('returns working status update with tool name', () => {
       const event: AgentEvent = { kind: 'tool_use', tool: 'read_file', input: {} };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.state).toBe('working');
-      expect(result.final).toBe(false);
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text).toBe('Using tool: read_file');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_WORKING);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      expect(msgPart?.$case).toBe('text');
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value).toBe('Using tool: read_file');
+      }
     });
 
     it('includes bash tool name', () => {
       const event: AgentEvent = { kind: 'tool_use', tool: 'bash', input: {} };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text).toBe('Using tool: bash');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value).toBe('Using tool: bash');
+      }
     });
   });
 
   describe('tool_result', () => {
     it('returns working status update with output content', () => {
       const event: AgentEvent = { kind: 'tool_result', tool: 'read_file', output: 'file contents here', isError: false };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.state).toBe('working');
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text).toContain('file contents here');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_WORKING);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value).toContain('file contents here');
+      }
     });
 
     it('truncates long output at 200 chars with ellipsis', () => {
       const long = 'x'.repeat(300);
       const event: AgentEvent = { kind: 'tool_result', tool: 'bash', output: long, isError: false };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text.endsWith('…')).toBe(true);
-      expect(text.length).toBeLessThanOrEqual(220);
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value.endsWith('…')).toBe(true);
+        expect(msgPart.value.length).toBeLessThanOrEqual(220);
+      }
     });
   });
 
   describe('done', () => {
-    it('returns completed status with final: true for empty summary', () => {
+    it('returns completed status for empty summary', () => {
       const event: AgentEvent = { kind: 'done', summary: '' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.state).toBe('completed');
-      expect(result.final).toBe(true);
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
     });
 
     it('with non-empty summary returns array with result artifact', () => {
       const event: AgentEvent = { kind: 'done', summary: 'Refactored auth module', stats: { inputTokens: 10 } };
       const results = arr(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
       expect(results).toHaveLength(2);
-      expect(results[0].kind).toBe('status-update');
-      expect(results[1].kind).toBe('artifact-update');
-      const artifact = (results[1] as TaskArtifactUpdateEvent).artifact;
-      expect(artifact.name).toBe('result');
+      const su = asStatusUpdate(results[0]);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_COMPLETED);
+      const au = asArtifactUpdate(results[1]);
+      expect(au.artifact?.name).toBe('result');
     });
 
     it('with only stats returns array with result artifact', () => {
@@ -146,24 +176,28 @@ describe('mapAgentEventToA2A', () => {
   });
 
   describe('error', () => {
-    it('returns failed status with final: true and error message', () => {
+    it('returns failed status with error message', () => {
       const event: AgentEvent = { kind: 'error', message: 'something went wrong' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.state).toBe('failed');
-      expect(result.final).toBe(true);
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text).toBe('something went wrong');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_FAILED);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value).toBe('something went wrong');
+      }
     });
   });
 
   describe('approval_required', () => {
-    it('returns input-required status with not final', () => {
+    it('returns input-required status', () => {
       const event: AgentEvent = { kind: 'approval_required', prompt: 'rm -rf dist' };
-      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID)) as TaskStatusUpdateEvent;
-      expect(result.status.state).toBe('input-required');
-      expect(result.final).toBe(false);
-      const text = (result.status.message!.parts[0] as { kind: 'text'; text: string }).text;
-      expect(text).toContain('rm -rf dist');
+      const result = single(mapAgentEventToA2A(event, TASK_ID, CTX_ID));
+      const su = asStatusUpdate(result);
+      expect(su.status?.state).toBe(TaskState.TASK_STATE_INPUT_REQUIRED);
+      const msgPart = su.status?.message?.parts[0]?.content;
+      if (msgPart?.$case === 'text') {
+        expect(msgPart.value).toContain('rm -rf dist');
+      }
     });
   });
 

@@ -2,7 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { EventEmitter } from 'node:events';
 import type { Config } from '../../src/types.js';
 import type { AgentEvent, CodingAgentAdapter } from '../../src/adapters/base.js';
-import type { TaskStatusUpdateEvent } from '@a2a-js/sdk';
+import { TaskState } from '@a2a-js/sdk';
+import type { AgentExecutionEvent } from '@a2a-js/sdk/server';
 import type { RequestContext } from '@a2a-js/sdk/server';
 
 // vi.mock factories are hoisted — use vi.fn() inline, not external variables
@@ -73,19 +74,26 @@ function makeBus() {
 function makeContext(overrides: Partial<{
   taskId: string;
   contextId: string;
-  parts: Array<{ kind: 'text'; text: string }>;
+  parts: Array<{ content: { $case: 'text'; value: string }; filename: string; mediaType: string; metadata: undefined }>;
 }> = {}): RequestContext {
   return {
     taskId: overrides.taskId ?? 'task-1',
     contextId: overrides.contextId ?? 'ctx-1',
     userMessage: {
-      kind: 'message',
       messageId: 'msg-1',
-      role: 'user',
+      role: 1, // ROLE_USER
       contextId: overrides.contextId ?? 'ctx-1',
-      parts: overrides.parts ?? [{ kind: 'text', text: 'do stuff' }],
+      taskId: '',
+      parts: overrides.parts ?? [{ content: { $case: 'text', value: 'do stuff' }, filename: '', mediaType: '', metadata: undefined }],
+      metadata: undefined,
+      extensions: [],
+      referenceTaskIds: [],
     },
   } as unknown as RequestContext;
+}
+
+function makeTextPart(text: string) {
+  return { content: { $case: 'text' as const, value: text }, filename: '', mediaType: '', metadata: undefined };
 }
 
 beforeEach(() => {
@@ -103,7 +111,7 @@ describe('CursorAgentExecutor', () => {
     it('spawns runner with task extracted from message parts', async () => {
       const executor = new CursorAgentExecutor(baseConfig, mockAdapter);
       const bus = makeBus();
-      const ctx = makeContext({ parts: [{ kind: 'text', text: 'refactor auth' }] });
+      const ctx = makeContext({ parts: [makeTextPart('refactor auth')] });
 
       const execPromise = executor.execute(ctx, bus);
       getMockRunner().emit('done', 0, '');
@@ -118,10 +126,7 @@ describe('CursorAgentExecutor', () => {
       const executor = new CursorAgentExecutor(baseConfig, mockAdapter);
       const bus = makeBus();
       const ctx = makeContext({
-        parts: [
-          { kind: 'text', text: 'part one' },
-          { kind: 'text', text: 'part two' },
-        ],
+        parts: [makeTextPart('part one'), makeTextPart('part two')],
       });
 
       const execPromise = executor.execute(ctx, bus);
@@ -161,12 +166,14 @@ describe('CursorAgentExecutor', () => {
     it('publishes mapped A2A event for each agent-event', async () => {
       const executor = new CursorAgentExecutor(baseConfig, mockAdapter);
       const bus = makeBus();
-      const fakeA2AEvent: TaskStatusUpdateEvent = {
-        kind: 'status-update',
-        taskId: 'task-1',
-        contextId: 'ctx-1',
-        final: false,
-        status: { state: 'working' },
+      const fakeA2AEvent: AgentExecutionEvent = {
+        kind: 'statusUpdate',
+        data: {
+          taskId: 'task-1',
+          contextId: 'ctx-1',
+          status: { state: TaskState.TASK_STATE_WORKING, timestamp: '', message: undefined },
+          metadata: undefined,
+        },
       };
       vi.mocked(mapAgentEventToA2A).mockReturnValue(fakeA2AEvent);
 
@@ -189,7 +196,7 @@ describe('CursorAgentExecutor', () => {
       await execPromise;
 
       // Only the initial task event is published; no mapped events
-      const nonTaskCalls = (bus.publish.mock.calls as Array<[{ kind: string }]>).filter(
+      const nonTaskCalls = (bus.publish.mock.calls as Array<[AgentExecutionEvent]>).filter(
         ([e]) => e.kind !== 'task',
       );
       expect(nonTaskCalls).toHaveLength(0);
@@ -198,8 +205,8 @@ describe('CursorAgentExecutor', () => {
     it('publishes each event when mapper returns an array', async () => {
       const executor = new CursorAgentExecutor(baseConfig, mockAdapter);
       const bus = makeBus();
-      const ev1: TaskStatusUpdateEvent = { kind: 'status-update', taskId: 't', contextId: 'c', final: false, status: { state: 'working' } };
-      const ev2: TaskStatusUpdateEvent = { kind: 'status-update', taskId: 't', contextId: 'c', final: false, status: { state: 'working' } };
+      const ev1: AgentExecutionEvent = { kind: 'statusUpdate', data: { taskId: 't', contextId: 'c', status: { state: TaskState.TASK_STATE_WORKING, timestamp: '', message: undefined }, metadata: undefined } };
+      const ev2: AgentExecutionEvent = { kind: 'statusUpdate', data: { taskId: 't', contextId: 'c', status: { state: TaskState.TASK_STATE_WORKING, timestamp: '', message: undefined }, metadata: undefined } };
       vi.mocked(mapAgentEventToA2A).mockReturnValue([ev1, ev2]);
 
       const execPromise = executor.execute(makeContext(), bus);
@@ -220,8 +227,8 @@ describe('CursorAgentExecutor', () => {
       await execPromise;
 
       expect(bus.finished).toHaveBeenCalled();
-      const failedCalls = (bus.publish.mock.calls as Array<[TaskStatusUpdateEvent]>).filter(
-        ([e]) => e.kind === 'status-update' && e.status.state === 'failed',
+      const failedCalls = (bus.publish.mock.calls as Array<[AgentExecutionEvent]>).filter(
+        ([e]) => e.kind === 'statusUpdate' && (e as { kind: 'statusUpdate'; data: { status: { state: TaskState } } }).data.status.state === TaskState.TASK_STATE_FAILED,
       );
       expect(failedCalls).toHaveLength(0);
     });
@@ -234,8 +241,8 @@ describe('CursorAgentExecutor', () => {
       getMockRunner().emit('done', 2, '');
       await execPromise;
 
-      const failedCalls = (bus.publish.mock.calls as Array<[TaskStatusUpdateEvent]>).filter(
-        ([e]) => e.kind === 'status-update' && e.status.state === 'failed',
+      const failedCalls = (bus.publish.mock.calls as Array<[AgentExecutionEvent]>).filter(
+        ([e]) => e.kind === 'statusUpdate' && (e as { kind: 'statusUpdate'; data: { status: { state: TaskState } } }).data.status.state === TaskState.TASK_STATE_FAILED,
       );
       expect(failedCalls).toHaveLength(1);
       expect(bus.finished).toHaveBeenCalled();
@@ -249,8 +256,8 @@ describe('CursorAgentExecutor', () => {
       getMockRunner().emit('error', new Error('spawn failed'));
       await execPromise;
 
-      const failedCalls = (bus.publish.mock.calls as Array<[TaskStatusUpdateEvent]>).filter(
-        ([e]) => e.kind === 'status-update' && e.status.state === 'failed',
+      const failedCalls = (bus.publish.mock.calls as Array<[AgentExecutionEvent]>).filter(
+        ([e]) => e.kind === 'statusUpdate' && (e as { kind: 'statusUpdate'; data: { status: { state: TaskState } } }).data.status.state === TaskState.TASK_STATE_FAILED,
       );
       expect(failedCalls).toHaveLength(1);
       expect(bus.finished).toHaveBeenCalled();
@@ -281,7 +288,7 @@ describe('CursorAgentExecutor', () => {
       executor.execute(ctx, bus);
 
       vi.mocked(CursorRunner).mockClear();
-      const resumeCtx = makeContext({ taskId: 'task-1', parts: [{ kind: 'text', text: 'y' }] });
+      const resumeCtx = makeContext({ taskId: 'task-1', parts: [makeTextPart('y')] });
       executor.execute(resumeCtx, bus);
 
       expect(vi.mocked(CursorRunner)).not.toHaveBeenCalled();
@@ -309,8 +316,8 @@ describe('CursorAgentExecutor', () => {
       const cancelBus = makeBus();
       await executor.cancelTask('task-1', cancelBus);
 
-      const canceledCalls = (cancelBus.publish.mock.calls as Array<[TaskStatusUpdateEvent]>).filter(
-        ([e]) => e.kind === 'status-update' && e.status.state === 'canceled',
+      const canceledCalls = (cancelBus.publish.mock.calls as Array<[AgentExecutionEvent]>).filter(
+        ([e]) => e.kind === 'statusUpdate' && (e as { kind: 'statusUpdate'; data: { status: { state: TaskState } } }).data.status.state === TaskState.TASK_STATE_CANCELED,
       );
       expect(canceledCalls).toHaveLength(1);
       expect(cancelBus.finished).toHaveBeenCalled();

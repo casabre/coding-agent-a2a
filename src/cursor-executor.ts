@@ -1,5 +1,6 @@
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from '@a2a-js/sdk/server';
-import type { TextPart } from '@a2a-js/sdk';
+import { AgentEvent } from '@a2a-js/sdk/server';
+import { TaskState, Role, type Part } from '@a2a-js/sdk';
 import type { Config } from './types.js';
 import type { CodingAgentAdapter } from './adapters/base.js';
 import { CursorRunner } from './cursor-runner.js';
@@ -20,8 +21,8 @@ export class CursorAgentExecutor implements AgentExecutor {
     const { taskId, contextId } = requestContext;
 
     const prompt = requestContext.userMessage.parts
-      .filter((p): p is TextPart => 'text' in p && p.kind === 'text')
-      .map((p) => p.text)
+      .filter((p): p is Part => p.content?.$case === 'text')
+      .map((p) => (p.content as { $case: 'text'; value: string }).value)
       .join('\n');
 
     // Re-subscribe: if a runner exists for this task (e.g. after input-required), resume it
@@ -32,13 +33,14 @@ export class CursorAgentExecutor implements AgentExecutor {
     }
 
     // Publish initial Task to seed the ResultManager's currentTask in the SDK
-    eventBus.publish({
-      kind: 'task',
+    eventBus.publish(AgentEvent.task({
       id: taskId,
       contextId,
-      status: { state: 'working', timestamp: new Date().toISOString() },
+      status: { state: TaskState.TASK_STATE_SUBMITTED, timestamp: new Date().toISOString(), message: undefined },
+      artifacts: [],
       history: [],
-    });
+      metadata: undefined,
+    }));
 
     runner = new CursorRunner({ task: prompt, adapter: this._adapter, config: this._config });
     this._activeRunners.set(taskId, runner);
@@ -56,23 +58,16 @@ export class CursorAgentExecutor implements AgentExecutor {
       runner!.on('done', (exitCode) => {
         this._activeRunners.delete(taskId);
         if (exitCode !== 0) {
-          eventBus.publish({
-            kind: 'status-update',
+          eventBus.publish(AgentEvent.statusUpdate({
             taskId,
             contextId,
-            final: true,
             status: {
-              state: 'failed',
+              state: TaskState.TASK_STATE_FAILED,
               timestamp: new Date().toISOString(),
-              message: {
-                kind: 'message',
-                messageId: uuidv4(),
-                role: 'agent',
-                contextId,
-                parts: [{ kind: 'text', text: `agent exited with code ${exitCode}` }],
-              },
+              message: agentMessage(contextId, `agent exited with code ${exitCode}`),
             },
-          });
+            metadata: undefined,
+          }));
         }
         eventBus.finished();
         resolve();
@@ -80,23 +75,16 @@ export class CursorAgentExecutor implements AgentExecutor {
 
       runner!.on('error', (err) => {
         this._activeRunners.delete(taskId);
-        eventBus.publish({
-          kind: 'status-update',
+        eventBus.publish(AgentEvent.statusUpdate({
           taskId,
           contextId,
-          final: true,
           status: {
-            state: 'failed',
+            state: TaskState.TASK_STATE_FAILED,
             timestamp: new Date().toISOString(),
-            message: {
-              kind: 'message',
-              messageId: uuidv4(),
-              role: 'agent',
-              contextId,
-              parts: [{ kind: 'text', text: err.message }],
-            },
+            message: agentMessage(contextId, err.message),
           },
-        });
+          metadata: undefined,
+        }));
         eventBus.finished();
         resolve();
       });
@@ -113,16 +101,29 @@ export class CursorAgentExecutor implements AgentExecutor {
     }
     this._activeRunners.delete(taskId);
     runner.cancel();
-    eventBus.publish({
-      kind: 'status-update',
+    eventBus.publish(AgentEvent.statusUpdate({
       taskId,
       contextId: taskId,
-      final: true,
       status: {
-        state: 'canceled',
+        state: TaskState.TASK_STATE_CANCELED,
         timestamp: new Date().toISOString(),
+        message: undefined,
       },
-    });
+      metadata: undefined,
+    }));
     eventBus.finished();
+  };
+}
+
+function agentMessage(contextId: string, text: string) {
+  return {
+    messageId: uuidv4(),
+    role: Role.ROLE_AGENT,
+    contextId,
+    taskId: '',
+    parts: [{ content: { $case: 'text' as const, value: text }, filename: '', mediaType: 'text/plain', metadata: undefined }],
+    metadata: undefined,
+    extensions: [],
+    referenceTaskIds: [],
   };
 }

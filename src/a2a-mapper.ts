@@ -1,17 +1,21 @@
-import type {
-  TaskStatusUpdateEvent,
-  TaskArtifactUpdateEvent,
-  TextPart,
-  DataPart,
+import {
+  TaskState,
+  Role,
+  type TaskStatusUpdateEvent,
+  type TaskArtifactUpdateEvent,
+  type Artifact,
+  type Part,
+  type Message,
 } from '@a2a-js/sdk';
-import type { Artifact1 } from '@a2a-js/sdk';
+import { AgentEvent } from '@a2a-js/sdk/server';
+import type { AgentExecutionEvent } from '@a2a-js/sdk/server';
 import { v4 as uuidv4 } from 'uuid';
-import type { AgentEvent } from './adapters/base.js';
+import type { AgentEvent as CodingAgentEvent } from './adapters/base.js';
 
-export type A2AEvent = TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
+export type A2AEvent = AgentExecutionEvent;
 
 /**
- * Translates a normalised {@link AgentEvent} into one or two A2A SDK events.
+ * Translates a normalised {@link CodingAgentEvent} into one or two A2A 1.0 events.
  *
  * Returns `null` for events that should not produce an A2A update (e.g. empty `thinking` text).
  * Returns an array when a single agent event maps to multiple A2A events (e.g. `init` with model
@@ -24,7 +28,7 @@ export type A2AEvent = TaskStatusUpdateEvent | TaskArtifactUpdateEvent;
  * @param contextId - A2A context UUID (from {@link RequestContext}).
  */
 export function mapAgentEventToA2A(
-  agentEvent: AgentEvent,
+  agentEvent: CodingAgentEvent,
   taskId: string,
   contextId: string,
 ): A2AEvent | A2AEvent[] | null {
@@ -32,22 +36,11 @@ export function mapAgentEventToA2A(
 
   switch (agentEvent.kind) {
     case 'init': {
-      const statusEvent: TaskStatusUpdateEvent = {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: false,
-        status: { state: 'working', timestamp: now },
-      };
+      const statusEvent = AgentEvent.statusUpdate(statusUpdate(taskId, contextId, TaskState.TASK_STATE_WORKING, now));
       if (agentEvent.model !== undefined || agentEvent.sessionId !== undefined) {
-        const metadataArtifact: TaskArtifactUpdateEvent = {
-          kind: 'artifact-update',
-          taskId,
-          contextId,
-          artifact: buildArtifact('agent-metadata', [
-            dataPart({ model: agentEvent.model, sessionId: agentEvent.sessionId }),
-          ]),
-        };
+        const metadataArtifact = AgentEvent.artifactUpdate(artifactUpdate(taskId, contextId, buildArtifact('agent-metadata', [
+          dataPart({ model: agentEvent.model, sessionId: agentEvent.sessionId }),
+        ])));
         return [statusEvent, metadataArtifact];
       }
       return statusEvent;
@@ -55,93 +48,55 @@ export function mapAgentEventToA2A(
 
     case 'thinking': {
       if (agentEvent.text.length === 0) return null;
-      return {
-        kind: 'artifact-update',
+      return AgentEvent.artifactUpdate({
         taskId,
         contextId,
         append: true,
+        lastChunk: false,
         artifact: buildArtifact('assistant-response', [textPart(agentEvent.text)]),
-      };
+        metadata: undefined,
+      });
     }
 
     case 'tool_use': {
-      return {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: false,
-        status: {
-          state: 'working',
-          timestamp: now,
-          message: statusMessage(contextId, `Using tool: ${agentEvent.tool}`),
-        },
-      };
+      return AgentEvent.statusUpdate(statusUpdate(
+        taskId, contextId, TaskState.TASK_STATE_WORKING, now,
+        statusMessage(contextId, `Using tool: ${agentEvent.tool}`),
+      ));
     }
 
     case 'tool_result': {
       const raw = agentEvent.output;
       const summary = raw.length > 200 ? raw.slice(0, 200) + '…' : raw;
-      return {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: false,
-        status: {
-          state: 'working',
-          timestamp: now,
-          message: statusMessage(contextId, `Tool result: ${summary}`),
-        },
-      };
+      return AgentEvent.statusUpdate(statusUpdate(
+        taskId, contextId, TaskState.TASK_STATE_WORKING, now,
+        statusMessage(contextId, `Tool result: ${summary}`),
+      ));
     }
 
     case 'done': {
-      const completedStatus: TaskStatusUpdateEvent = {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: true,
-        status: { state: 'completed', timestamp: now },
-      };
+      const completedStatus = AgentEvent.statusUpdate(statusUpdate(taskId, contextId, TaskState.TASK_STATE_COMPLETED, now));
       if (agentEvent.summary.length > 0 || agentEvent.stats !== undefined) {
-        const resultArtifact: TaskArtifactUpdateEvent = {
-          kind: 'artifact-update',
-          taskId,
-          contextId,
-          artifact: buildArtifact('result', [
-            dataPart({ summary: agentEvent.summary, stats: agentEvent.stats }),
-          ]),
-        };
+        const resultArtifact = AgentEvent.artifactUpdate(artifactUpdate(taskId, contextId, buildArtifact('result', [
+          dataPart({ summary: agentEvent.summary, stats: agentEvent.stats }),
+        ]), { lastChunk: true }));
         return [completedStatus, resultArtifact];
       }
       return completedStatus;
     }
 
     case 'error': {
-      return {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: true,
-        status: {
-          state: 'failed',
-          timestamp: now,
-          message: statusMessage(contextId, agentEvent.message),
-        },
-      };
+      return AgentEvent.statusUpdate(statusUpdate(
+        taskId, contextId, TaskState.TASK_STATE_FAILED, now,
+        statusMessage(contextId, agentEvent.message),
+      ));
     }
 
     case 'approval_required': {
-      return {
-        kind: 'status-update',
-        taskId,
-        contextId,
-        final: false,
-        status: {
-          state: 'input-required',
-          timestamp: now,
-          message: statusMessage(contextId, `Approve: ${agentEvent.prompt}?`),
-        },
-      };
+      return AgentEvent.statusUpdate(statusUpdate(
+        taskId, contextId, TaskState.TASK_STATE_INPUT_REQUIRED, now,
+        statusMessage(contextId, `Approve: ${agentEvent.prompt}?`),
+      ));
     }
 
     default:
@@ -149,24 +104,46 @@ export function mapAgentEventToA2A(
   }
 }
 
-function buildArtifact(name: string, parts: (TextPart | DataPart)[]): Artifact1 {
-  return { artifactId: uuidv4(), name, parts };
+function statusUpdate(
+  taskId: string,
+  contextId: string,
+  state: TaskState,
+  timestamp: string,
+  message?: Message,
+): TaskStatusUpdateEvent {
+  return { taskId, contextId, status: { state, timestamp, message }, metadata: undefined };
 }
 
-function textPart(text: string): TextPart {
-  return { kind: 'text', text };
+function artifactUpdate(
+  taskId: string,
+  contextId: string,
+  artifact: Artifact,
+  opts: { lastChunk?: boolean } = {},
+): TaskArtifactUpdateEvent {
+  return { taskId, contextId, artifact, append: false, lastChunk: opts.lastChunk ?? false, metadata: undefined };
 }
 
-function dataPart(data: Record<string, unknown>): DataPart {
-  return { kind: 'data', data };
+function buildArtifact(name: string, parts: Part[]): Artifact {
+  return { artifactId: uuidv4(), name, description: '', parts, metadata: undefined, extensions: [] };
 }
 
-function statusMessage(contextId: string, text: string) {
+function textPart(text: string): Part {
+  return { content: { $case: 'text', value: text }, filename: '', mediaType: 'text/plain', metadata: undefined };
+}
+
+function dataPart(data: Record<string, unknown>): Part {
+  return { content: { $case: 'data', value: data }, filename: '', mediaType: 'application/json', metadata: undefined };
+}
+
+function statusMessage(contextId: string, text: string): Message {
   return {
-    kind: 'message' as const,
     messageId: uuidv4(),
-    role: 'agent' as const,
+    role: Role.ROLE_AGENT,
     contextId,
+    taskId: '',
     parts: [textPart(text)],
+    metadata: undefined,
+    extensions: [],
+    referenceTaskIds: [],
   };
 }

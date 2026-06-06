@@ -6,16 +6,26 @@ export function buildAgentCard(config: Config, adapter: CodingAgentAdapter): Age
   const card: AgentCard = {
     name: `coding-agent-a2a (${adapter.name})`,
     description: `Delegates coding tasks to the ${adapter.name} agent and streams results back via the A2A protocol.`,
-    protocolVersion: '0.3.0',
     version: '0.1.0',
-    url: `http://localhost:${config.port}/a2a/jsonrpc`,
+    provider: undefined,
+    supportedInterfaces: [
+      {
+        url: `http://localhost:${config.port}/a2a/jsonrpc`,
+        protocolBinding: 'JSONRPC',
+        protocolVersion: '1.0',
+        tenant: '',
+      },
+    ],
     capabilities: {
       streaming: true,
       pushNotifications: false,
-      stateTransitionHistory: true,
+      extensions: [],
     },
     defaultInputModes: ['text/plain'],
     defaultOutputModes: ['text/plain', 'application/json'],
+    securitySchemes: {},
+    securityRequirements: [],
+    signatures: [],
     skills: [
       {
         id: 'code-task',
@@ -30,27 +40,44 @@ export function buildAgentCard(config: Config, adapter: CodingAgentAdapter): Age
           'Add unit tests for src/utils/date.ts',
           'Explain how the rate limiter works',
         ],
+        securityRequirements: [],
       },
     ],
   };
 
-  // AgentCard.securitySchemes is supported in @a2a-js/sdk v0.3.13
   if (config.authEnabled && config.authServerUrl) {
     card.securitySchemes = {
       oauth2: {
-        type: 'oauth2',
-        flows: {
-          authorizationCode: {
-            authorizationUrl: config.authAuthorizationUrl!,
-            tokenUrl: config.authTokenUrl!,
-            scopes: Object.fromEntries(
-              (config.authRequiredScopes ?? []).map((s) => [s, s]),
-            ),
+        scheme: {
+          $case: 'oauth2SecurityScheme',
+          value: {
+            description: '',
+            oauth2MetadataUrl: '',
+            flows: {
+              flow: {
+                $case: 'authorizationCode',
+                value: {
+                  authorizationUrl: config.authAuthorizationUrl!,
+                  tokenUrl: config.authTokenUrl!,
+                  refreshUrl: '',
+                  pkceRequired: false,
+                  scopes: Object.fromEntries(
+                    (config.authRequiredScopes ?? []).map((s) => [s, s]),
+                  ),
+                },
+              },
+            },
           },
         },
       },
     };
-    card.security = [{ oauth2: config.authRequiredScopes ?? [] }];
+    card.securityRequirements = [
+      {
+        schemes: Object.fromEntries([
+          ['oauth2', { list: config.authRequiredScopes ?? [] }],
+        ]),
+      },
+    ];
   }
 
   return card;

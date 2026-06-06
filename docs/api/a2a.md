@@ -1,6 +1,6 @@
 # A2A Protocol Reference
 
-coding-agent-a2a implements [Google's Agent-to-Agent (A2A) protocol v0.3.0](https://google.github.io/A2A) using `@a2a-js/sdk` v0.3.13.
+coding-agent-a2a implements [Google's Agent-to-Agent (A2A) protocol v1.0](https://google.github.io/A2A) using `@a2a-js/sdk` v1.0.0-alpha.0.
 
 ---
 
@@ -10,6 +10,12 @@ coding-agent-a2a implements [Google's Agent-to-Agent (A2A) protocol v0.3.0](http
 |--------|------|-------------|
 | `GET` | `/.well-known/agent-card.json` | Agent discovery — returns the AgentCard. |
 | `POST` | `/a2a/jsonrpc` | JSON-RPC 2.0 handler — all A2A methods go here. |
+
+All JSON-RPC requests must include the header:
+
+```
+A2A-Version: 1.0
+```
 
 ---
 
@@ -25,13 +31,16 @@ curl http://localhost:41242/.well-known/agent-card.json
 {
   "name": "coding-agent-a2a (cursor)",
   "description": "Delegates coding tasks to the cursor agent and streams results back via the A2A protocol.",
-  "protocolVersion": "0.3.0",
   "version": "0.1.0",
-  "url": "http://localhost:41242/a2a/jsonrpc",
+  "supportedInterfaces": [
+    {
+      "url": "http://localhost:41242/a2a/jsonrpc",
+      "protocolVersion": "1.0"
+    }
+  ],
   "capabilities": {
     "streaming": true,
-    "pushNotifications": false,
-    "stateTransitionHistory": true
+    "pushNotifications": false
   },
   "defaultInputModes": ["text/plain"],
   "defaultOutputModes": ["text/plain", "application/json"],
@@ -76,9 +85,9 @@ Responses follow the same envelope with a `result` or `error` field.
 
 ## Methods
 
-### `message/send`
+### `SendMessage`
 
-Sends a message and waits for the task to reach a terminal state before returning (blocking). Use for short tasks or when the client cannot process SSE.
+Sends a message and waits for the task to reach a terminal state before returning. Use for short tasks or when the client cannot process SSE.
 
 **Request**
 
@@ -86,41 +95,41 @@ Sends a message and waits for the task to reach a terminal state before returnin
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "message/send",
+  "method": "SendMessage",
   "params": {
     "message": {
-      "kind": "message",
       "messageId": "msg-uuid",
-      "role": "user",
-      "parts": [{ "kind": "text", "text": "Add a health check endpoint" }]
+      "role": "ROLE_USER",
+      "parts": [{ "text": "Add a health check endpoint" }]
     },
     "configuration": {
-      "blocking": true
+      "returnImmediately": false
     }
   }
 }
 ```
 
-**Response** — the task in its final state:
+**Response** — the task wrapped in `result.task`:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 1,
   "result": {
-    "kind": "task",
-    "id": "task-uuid",
-    "contextId": "ctx-uuid",
-    "status": { "state": "completed", "timestamp": "2026-05-10T18:00:00Z" },
-    "artifacts": [...],
-    "history": [...]
+    "task": {
+      "id": "task-uuid",
+      "contextId": "ctx-uuid",
+      "status": { "state": "TASK_STATE_COMPLETED", "timestamp": "2026-05-10T18:00:00Z" },
+      "artifacts": [],
+      "history": []
+    }
   }
 }
 ```
 
 ---
 
-### `message/stream`
+### `SendStreamingMessage`
 
 Sends a message and streams task updates as Server-Sent Events (SSE). Preferred for long-running tasks.
 
@@ -130,37 +139,36 @@ Sends a message and streams task updates as Server-Sent Events (SSE). Preferred 
 {
   "jsonrpc": "2.0",
   "id": 1,
-  "method": "message/stream",
+  "method": "SendStreamingMessage",
   "params": {
     "message": {
-      "kind": "message",
       "messageId": "msg-uuid",
-      "role": "user",
-      "parts": [{ "kind": "text", "text": "Refactor the auth module to use JWT" }]
+      "role": "ROLE_USER",
+      "parts": [{ "text": "Refactor the auth module to use JWT" }]
     }
   }
 }
 ```
 
-**Response** — SSE stream (`Content-Type: text/event-stream`):
+**Response** — SSE stream (`Content-Type: text/event-stream`). Each event is a JSON-RPC result frame:
 
 ```
-data: {"kind":"status-update","taskId":"task-uuid","contextId":"ctx-uuid","final":false,"status":{"state":"working","timestamp":"2026-05-10T18:00:00Z"}}
+data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"task-uuid","contextId":"ctx-uuid","status":{"state":"TASK_STATE_WORKING","timestamp":"2026-05-10T18:00:00Z"}}}}
 
-data: {"kind":"artifact-update","taskId":"task-uuid","contextId":"ctx-uuid","append":true,"artifact":{"artifactId":"art-uuid","name":"assistant-response","parts":[{"kind":"text","text":"I'll start by reading the auth module..."}]}}
+data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"task-uuid","contextId":"ctx-uuid","artifact":{"artifactId":"art-uuid","name":"assistant-response","parts":[{"text":"I'll start by reading the auth module..."}]},"append":true,"lastChunk":false}}}
 
-data: {"kind":"status-update","taskId":"task-uuid","contextId":"ctx-uuid","final":false,"status":{"state":"working","timestamp":"2026-05-10T18:00:01Z","message":{"kind":"message","role":"agent","parts":[{"kind":"text","text":"Using tool: read_file"}]}}}
+data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"task-uuid","contextId":"ctx-uuid","status":{"state":"TASK_STATE_WORKING","timestamp":"2026-05-10T18:00:01Z","message":{"role":"ROLE_AGENT","parts":[{"text":"Using tool: read_file"}]}}}}}
 
-data: {"kind":"artifact-update","taskId":"task-uuid","contextId":"ctx-uuid","artifact":{"artifactId":"res-uuid","name":"result","parts":[{"kind":"data","data":{"summary":"Refactored auth.ts to use JWT."}}]}}
+data: {"jsonrpc":"2.0","id":1,"result":{"artifactUpdate":{"taskId":"task-uuid","contextId":"ctx-uuid","artifact":{"artifactId":"res-uuid","name":"result","parts":[{"data":{"summary":"Refactored auth.ts to use JWT."}}]},"append":false,"lastChunk":true}}}
 
-data: {"kind":"status-update","taskId":"task-uuid","contextId":"ctx-uuid","final":true,"status":{"state":"completed","timestamp":"2026-05-10T18:00:10Z"}}
+data: {"jsonrpc":"2.0","id":1,"result":{"statusUpdate":{"taskId":"task-uuid","contextId":"ctx-uuid","status":{"state":"TASK_STATE_COMPLETED","timestamp":"2026-05-10T18:00:10Z"}}}}
 ```
 
-The stream closes after the event with `"final": true`.
+The stream closes after the `TASK_STATE_COMPLETED` (or `TASK_STATE_FAILED`) status update.
 
 ---
 
-### `tasks/get`
+### `GetTask`
 
 Retrieves the current state of an existing task.
 
@@ -170,8 +178,8 @@ Retrieves the current state of an existing task.
 {
   "jsonrpc": "2.0",
   "id": 2,
-  "method": "tasks/get",
-  "params": { "taskId": "task-uuid" }
+  "method": "GetTask",
+  "params": { "id": "task-uuid" }
 }
 ```
 
@@ -182,10 +190,10 @@ Retrieves the current state of an existing task.
   "jsonrpc": "2.0",
   "id": 2,
   "result": {
-    "kind": "task",
-    "id": "task-uuid",
-    "status": { "state": "working", "timestamp": "..." },
-    ...
+    "task": {
+      "id": "task-uuid",
+      "status": { "state": "TASK_STATE_WORKING", "timestamp": "..." }
+    }
   }
 }
 ```
@@ -194,9 +202,9 @@ Returns a JSON-RPC error (`-32001 TaskNotFound`) if the task does not exist.
 
 ---
 
-### `tasks/cancel`
+### `CancelTask`
 
-Cancels an in-progress task. The runner receives SIGTERM immediately; the task transitions to `canceled`.
+Cancels an in-progress task. The runner receives SIGTERM immediately; the task transitions to `TASK_STATE_CANCELED`.
 
 **Request**
 
@@ -204,12 +212,12 @@ Cancels an in-progress task. The runner receives SIGTERM immediately; the task t
 {
   "jsonrpc": "2.0",
   "id": 3,
-  "method": "tasks/cancel",
-  "params": { "taskId": "task-uuid" }
+  "method": "CancelTask",
+  "params": { "id": "task-uuid" }
 }
 ```
 
-Calling `tasks/cancel` on a task that is already in a terminal state (`completed`, `failed`, `canceled`) is a no-op.
+Calling `CancelTask` on a task that is already in a terminal state (`TASK_STATE_COMPLETED`, `TASK_STATE_FAILED`, `TASK_STATE_CANCELED`) is a no-op.
 
 ---
 
@@ -217,15 +225,15 @@ Calling `tasks/cancel` on a task that is already in a terminal state (`completed
 
 Events streamed over SSE map to internal `AgentEvent`s as follows:
 
-| `AgentEvent.kind` | A2A event | Notes |
-|-------------------|-----------|-------|
-| `init` | `status-update { state: 'working' }` | Always emitted. If `model` or `sessionId` present, also emits `artifact-update` with metadata. |
-| `thinking` | `artifact-update` (name: `assistant-response`, `append: true`) | Text is appended; multiple chunks build up the full response. |
-| `tool_use` | `status-update { state: 'working' }` | Message includes `"Using tool: <name>"`. |
-| `tool_result` | `status-update { state: 'working' }` | Message includes a truncated tool output (≤200 chars). |
-| `done` | `status-update { state: 'completed', final: true }` | If summary or stats present, also emits `artifact-update` with result data. |
-| `error` | `status-update { state: 'failed', final: true }` | Message includes the error text. |
-| `approval_required` | `status-update { state: 'input-required' }` | Not final; stream stays open. Respond by sending another message. |
+| `AgentEvent.kind` | SSE field | Task state | Notes |
+|-------------------|-----------|------------|-------|
+| `init` | `statusUpdate` | `TASK_STATE_WORKING` | Always emitted first. If `model` or `sessionId` present, also emits `artifactUpdate` with name `agent-metadata`. |
+| `thinking` | `artifactUpdate` (name: `assistant-response`, `append: true`) | — | Text is appended; multiple chunks build the full response. |
+| `tool_use` | `statusUpdate` | `TASK_STATE_WORKING` | Status message includes `"Using tool: <name>"`. |
+| `tool_result` | `statusUpdate` | `TASK_STATE_WORKING` | Status message includes a truncated tool output (≤ 200 chars). |
+| `done` | `statusUpdate` | `TASK_STATE_COMPLETED` | If summary or stats present, also emits `artifactUpdate` with name `result`. |
+| `error` | `statusUpdate` | `TASK_STATE_FAILED` | Status message includes the error text. |
+| `approval_required` | `statusUpdate` | `TASK_STATE_INPUT_REQUIRED` | Stream stays open. Respond with `SendMessage` to resume. |
 
 ---
 
@@ -241,10 +249,10 @@ working ◄───────────────────────
    ├── agent exits non-zero ────────────────► failed    [terminal]
    ├── error event ─────────────────────────► failed    [terminal]
    ├── timeout / idle expiry ───────────────► failed    [terminal]
-   ├── tasks/cancel ────────────────────────► canceled  [terminal]
+   ├── CancelTask ──────────────────────────► canceled  [terminal]
    └── approval_required event ─────────────► input-required
                                                  │
-                                       message/send (with answer)
+                                       SendMessage (with answer)
                                                  │
                                                  ▼
                                               working
@@ -254,22 +262,21 @@ working ◄───────────────────────
 
 ## Resuming after `input-required`
 
-When `AGENT_FORCE=false`, the CLI may pause and ask for shell-command approval. The task enters the `input-required` state.
+When `AGENT_FORCE=false`, the CLI may pause and ask for shell-command approval. The task enters the `TASK_STATE_INPUT_REQUIRED` state.
 
-To resume:
+To resume, send a new message with the same `contextId`:
 
 ```json
 {
   "jsonrpc": "2.0",
   "id": 4,
-  "method": "message/send",
+  "method": "SendMessage",
   "params": {
     "message": {
-      "kind": "message",
       "messageId": "msg-2",
-      "role": "user",
+      "role": "ROLE_USER",
       "contextId": "<same contextId>",
-      "parts": [{ "kind": "text", "text": "y" }]
+      "parts": [{ "text": "y" }]
     }
   }
 }
@@ -286,7 +293,7 @@ The executor detects the existing runner for that `taskId` and calls `runner.res
 | `-32700` | Parse error | Request body is not valid JSON. |
 | `-32600` | Invalid request | Required JSON-RPC fields missing. |
 | `-32601` | Method not found | Unknown A2A method. |
-| `-32001` | TaskNotFound | `tasks/get` or `tasks/cancel` for unknown taskId. |
+| `-32001` | TaskNotFound | `GetTask` or `CancelTask` for unknown task id. |
 
 ---
 
@@ -296,16 +303,16 @@ The executor detects the existing runner for that `taskId` and calls `runner.res
 curl -N -X POST http://localhost:41242/a2a/jsonrpc \
   -H "Content-Type: application/json" \
   -H "Accept: text/event-stream" \
+  -H "A2A-Version: 1.0" \
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
-    "method": "message/stream",
+    "method": "SendStreamingMessage",
     "params": {
       "message": {
-        "kind": "message",
         "messageId": "test-1",
-        "role": "user",
-        "parts": [{"kind": "text", "text": "Explain the main function in src/index.ts"}]
+        "role": "ROLE_USER",
+        "parts": [{"text": "Explain the main function in src/index.ts"}]
       }
     }
   }'

@@ -24,7 +24,7 @@
     "lint": "eslint src tests"
   },
   "dependencies": {
-    "@a2a-js/sdk": "0.3.13",
+    "@a2a-js/sdk": "^1.0.0-alpha.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/auto-instrumentations-node": "^0.56.0",

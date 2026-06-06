@@ -189,7 +189,7 @@ A process-wide `EventEmitter` singleton with two channels per job. Currently use
 
 ## 4. A2A data flow
 
-An A2A client connects over HTTP. `message/stream` is preferred for long tasks — the server pushes progress as Server-Sent Events (SSE). `message/send` blocks until the task completes.
+An A2A client connects over HTTP. `SendStreamingMessage` is preferred for long tasks — the server pushes progress as Server-Sent Events (SSE). `SendMessage` blocks until the task completes. All requests must include the `A2A-Version: 1.0` header.
 
 ```mermaid
 sequenceDiagram
@@ -199,25 +199,25 @@ sequenceDiagram
     participant R  as CursorRunner
     participant CLI as CLI process
 
-    C->>SDK: POST /a2a/jsonrpc (message/stream)
+    C->>SDK: POST /a2a/jsonrpc (SendStreamingMessage)
     SDK->>X: execute(requestContext, eventBus)
     X->>R: new CursorRunner(); start()
     R->>CLI: spawn --print --output-format stream-json
 
     CLI-->>R: {"type":"system/init","model":"..."}
     R-->>X: emit agent-event: init
-    X-->>SDK: status-update {state: working}
-    SDK-->>C: SSE: {kind: status-update, state: working}
+    X-->>SDK: statusUpdate {state: TASK_STATE_WORKING}
+    SDK-->>C: SSE: {statusUpdate: {state: TASK_STATE_WORKING}}
 
     CLI-->>R: {"type":"assistant","message":{...}}
     R-->>X: emit agent-event: thinking
-    X-->>SDK: artifact-update {append: true}
-    SDK-->>C: SSE: {kind: artifact-update}
+    X-->>SDK: artifactUpdate {append: true}
+    SDK-->>C: SSE: {artifactUpdate: {append: true}}
 
     CLI-->>R: {"type":"result",...}
     R-->>X: emit agent-event: done
-    X-->>SDK: status-update {state: completed, final: true}
-    SDK-->>C: SSE: {kind: status-update, final: true}
+    X-->>SDK: statusUpdate {state: TASK_STATE_COMPLETED}
+    SDK-->>C: SSE: {statusUpdate: {state: TASK_STATE_COMPLETED}}
 ```
 
 ### A2A task state machine
@@ -226,13 +226,13 @@ sequenceDiagram
 stateDiagram-v2
     state "input-required" as input_required
 
-    [*]            --> submitted      : message/send or message/stream
+    [*]            --> submitted      : SendMessage or SendStreamingMessage
     submitted      --> working        : execute() called
     working        --> completed      : result event (exit 0)
     working        --> failed         : error / non-zero exit / timeout
-    working        --> canceled       : tasks/cancel
+    working        --> canceled       : CancelTask
     working        --> input_required : approval_required (AGENT_FORCE=false)
-    input_required --> working        : new message (resume)
+    input_required --> working        : SendMessage (resume)
     completed      --> [*]
     failed         --> [*]
     canceled       --> [*]

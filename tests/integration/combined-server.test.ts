@@ -6,9 +6,12 @@ import request from 'supertest';
 import type { CodingAgentAdapter } from '../../src/adapters/base.js';
 import type { Config } from '../../src/types.js';
 import type { AgentExecutor, ExecutionEventBus, RequestContext } from '@a2a-js/sdk/server';
-import type { TaskStatusUpdateEvent, Task } from '@a2a-js/sdk';
+import { AgentEvent } from '@a2a-js/sdk/server';
+import { TaskState } from '@a2a-js/sdk';
 import { createCombinedApp } from '../../src/combined-server.js';
 import { v4 as uuidv4 } from 'uuid';
+
+const A2A_VERSION = '1.0';
 
 const baseConfig: Config = {
   port: 41244,
@@ -35,21 +38,20 @@ const mockAdapter: CodingAgentAdapter = {
 function makeCompletingA2AExecutor(): AgentExecutor {
   return {
     execute: vi.fn(async (ctx: RequestContext, bus: ExecutionEventBus) => {
-      const task: Task = {
-        kind: 'task',
+      bus.publish(AgentEvent.task({
         id: ctx.taskId,
         contextId: ctx.contextId,
-        status: { state: 'working', timestamp: new Date().toISOString() },
+        status: { state: TaskState.TASK_STATE_SUBMITTED, timestamp: new Date().toISOString(), message: undefined },
+        artifacts: [],
         history: [],
-      } as unknown as Task;
-      bus.publish(task);
-      bus.publish({
-        kind: 'status-update',
+        metadata: undefined,
+      }));
+      bus.publish(AgentEvent.statusUpdate({
         taskId: ctx.taskId,
         contextId: ctx.contextId,
-        final: true,
-        status: { state: 'completed', timestamp: new Date().toISOString() },
-      } as TaskStatusUpdateEvent);
+        status: { state: TaskState.TASK_STATE_COMPLETED, timestamp: new Date().toISOString(), message: undefined },
+        metadata: undefined,
+      }));
       bus.finished();
     }),
     cancelTask: vi.fn(async () => {}),
@@ -61,7 +63,7 @@ function jsonRpc(method: string, params: Record<string, unknown>, id = 1) {
 }
 
 function makeMessage(text: string) {
-  return { kind: 'message', messageId: uuidv4(), role: 'user', parts: [{ kind: 'text', text }] };
+  return { messageId: uuidv4(), role: 'ROLE_USER', parts: [{ text }] };
 }
 
 async function startServer(config = baseConfig): Promise<{ server: http.Server; port: number }> {
@@ -90,7 +92,7 @@ describe('Combined server — production verifier path', () => {
     const app = createCombinedApp(authConfig, mockAdapter);
     const res = await request(app)
       .post('/a2a/jsonrpc')
-      .send({ jsonrpc: '2.0', id: 1, method: 'message/send', params: {} });
+      .send({ jsonrpc: '2.0', id: 1, method: 'SendMessage', params: {} });
     expect(res.status).toBe(401);
   });
 });
@@ -104,11 +106,12 @@ describe('Combined server (A2A + MCP/HTTP)', () => {
       expect(res.body.skills).toBeDefined();
     });
 
-    it('message/send returns a result', async () => {
+    it('SendMessage returns a result', async () => {
       const app = createCombinedApp(baseConfig, mockAdapter, { executor: makeCompletingA2AExecutor() });
       const res = await request(app)
         .post('/a2a/jsonrpc')
-        .send(jsonRpc('message/send', { message: makeMessage('hello'), configuration: { blocking: true } }));
+        .set('A2A-Version', A2A_VERSION)
+        .send(jsonRpc('SendMessage', { message: makeMessage('hello'), configuration: { returnImmediately: false } }));
       expect(res.status).toBe(200);
       expect(res.body.result).toBeDefined();
     });
@@ -165,7 +168,8 @@ describe('Combined server (A2A + MCP/HTTP)', () => {
             },
           );
           req.setHeader('Content-Type', 'application/json');
-          req.write(JSON.stringify(jsonRpc('message/send', { message: makeMessage('task'), configuration: { blocking: true } })));
+          req.setHeader('A2A-Version', A2A_VERSION);
+          req.write(JSON.stringify(jsonRpc('SendMessage', { message: makeMessage('task'), configuration: { returnImmediately: false } })));
           req.end();
         });
         expect(a2aRes.status).toBe(200);
