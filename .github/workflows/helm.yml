@@ -5,7 +5,6 @@ on:
     paths:
       - 'helm/**'
   push:
-    branches: [main]
     tags: ['v*']
     paths:
       - 'helm/**'
@@ -26,7 +25,7 @@ jobs:
 
   publish:
     name: Package & push OCI chart to ghcr.io
-    if: github.event_name == 'push'
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: lint
     runs-on: ubuntu-latest
     permissions:
@@ -38,12 +37,7 @@ jobs:
 
       - name: Derive chart version
         id: version
-        run: |
-          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=0.0.0-dev" >> "$GITHUB_OUTPUT"
-          fi
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Package chart
         run: |
