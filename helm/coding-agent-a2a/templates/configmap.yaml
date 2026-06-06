@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "coding-agent-a2a.fullname" . }}
+  labels:
+    {{- include "coding-agent-a2a.labels" . | nindent 4 }}
+data:
+  PORT: {{ .Values.service.port | quote }}
+  AGENT_ADAPTER: {{ .Values.agent.adapter | quote }}
+  AGENT_TIMEOUT_MS: {{ .Values.agent.timeoutMs | quote }}
+  AGENT_IDLE_EXIT_MS: {{ .Values.agent.idleExitMs | quote }}
+  AGENT_FORCE: {{ .Values.agent.force | quote }}
+  AGENT_REPO_PATH: {{ .Values.workspace.mountPath | quote }}
+  {{- if .Values.agent.model }}
+  AGENT_MODEL: {{ .Values.agent.model | quote }}
+  {{- end }}
+  MCP_TRANSPORT: "http"
+  OTEL_ENABLED: {{ .Values.otel.enabled | quote }}
+  {{- if .Values.otel.endpoint }}
+  OTEL_EXPORTER_OTLP_ENDPOINT: {{ .Values.otel.endpoint | quote }}
+  {{- end }}
+  {{- if .Values.otel.serviceName }}
+  OTEL_SERVICE_NAME: {{ .Values.otel.serviceName | quote }}
+  {{- end }}
+  {{- if .Values.auth.enabled }}
+  AUTH_ENABLED: "true"
+  {{- if .Values.auth.oidcDiscoveryUrl }}
+  AUTH_OIDC_DISCOVERY_URL: {{ .Values.auth.oidcDiscoveryUrl | quote }}
+  {{- end }}
+  {{- if .Values.auth.authorizationUrl }}
+  AUTH_AUTHORIZATION_URL: {{ .Values.auth.authorizationUrl | quote }}
+  {{- end }}
+  {{- if .Values.auth.tokenUrl }}
+  AUTH_TOKEN_URL: {{ .Values.auth.tokenUrl | quote }}
+  {{- end }}
+  {{- if .Values.auth.requiredScopes }}
+  AUTH_REQUIRED_SCOPES: {{ .Values.auth.requiredScopes | quote }}
+  {{- end }}
+  {{- end }}

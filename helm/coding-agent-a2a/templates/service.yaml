@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "coding-agent-a2a.fullname" . }}
+  labels:
+    {{- include "coding-agent-a2a.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "coding-agent-a2a.selectorLabels" . | nindent 4 }}

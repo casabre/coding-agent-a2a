@@ -1,0 +1,13 @@
+apiVersion: v2
+name: coding-agent-a2a
+description: A2A + MCP server that wraps coding-agent CLIs (Cursor, Claude Code, Vibe, Codex, OpenCode)
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+home: https://github.com/carstendev/coding-agent-a2a
+keywords:
+  - a2a
+  - mcp
+  - ai
+  - coding-agent
+  - llm

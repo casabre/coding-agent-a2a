@@ -1,0 +1,123 @@
+image:
+  repository: ghcr.io/carstendev/coding-agent-a2a
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+# - name: my-registry-secret
+
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 41242
+
+agent:
+  # Adapter to use: cursor | claude-code | vibe | codex | opencode | generic
+  adapter: cursor
+  model: ""
+  timeoutMs: 120000
+  idleExitMs: 0
+  force: true
+
+# Workspace volume: the working directory for spawned CLI processes.
+# Mounted at workspace.mountPath inside the container.
+workspace:
+  mountPath: /workspace
+  # type: emptyDir | pvc | hostPath
+  type: emptyDir
+  pvc:
+    # Leave claimName empty to provision a new PVC using storageClass + size
+    claimName: ""
+    storageClass: ""
+    size: 10Gi
+    accessMode: ReadWriteOnce
+  hostPath:
+    path: ""
+
+auth:
+  enabled: false
+  issuer: ""
+  audience: ""
+  # Provide either oidcDiscoveryUrl OR the three manual URLs below
+  oidcDiscoveryUrl: ""
+  authorizationUrl: ""
+  tokenUrl: ""
+  jwksUri: ""
+  requiredScopes: ""
+  # Set to use an existing K8s Secret instead of creating one from values above
+  existingSecret: ""
+
+otel:
+  enabled: false
+  # OTLP receiver endpoint, e.g. http://otel-collector:4318
+  # Maps to OTEL_EXPORTER_OTLP_ENDPOINT (read natively by the OTEL SDK)
+  endpoint: ""
+  # Maps to OTEL_SERVICE_NAME
+  serviceName: coding-agent-a2a
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+podSecurityContext: {}
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  readOnlyRootFilesystem: false
+  allowPrivilegeEscalation: false
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: chart-example.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 80
+
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1
+
+livenessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /health
+    port: http
+  initialDelaySeconds: 5
+  periodSeconds: 10
+  failureThreshold: 3
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

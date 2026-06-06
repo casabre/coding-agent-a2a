@@ -1,0 +1,13 @@
+{{- if .Values.podDisruptionBudget.enabled }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "coding-agent-a2a.fullname" . }}
+  labels:
+    {{- include "coding-agent-a2a.labels" . | nindent 4 }}
+spec:
+  minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
+  selector:
+    matchLabels:
+      {{- include "coding-agent-a2a.selectorLabels" . | nindent 6 }}
+{{- end }}

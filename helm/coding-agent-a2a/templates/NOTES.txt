@@ -1,0 +1,23 @@
+coding-agent-a2a has been deployed!
+
+Adapter: {{ .Values.agent.adapter }}
+Auth:    {{ if .Values.auth.enabled }}enabled{{ else }}disabled{{ end }}
+OTEL:    {{ if .Values.otel.enabled }}enabled → {{ .Values.otel.endpoint }}{{ else }}disabled{{ end }}
+
+Get the service URL:
+{{- if .Values.ingress.enabled }}
+{{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}/health
+{{- end }}
+{{- else if eq .Values.service.type "NodePort" }}
+  export NODE_PORT=$(kubectl get svc {{ include "coding-agent-a2a.fullname" . }} -o jsonpath="{.spec.ports[0].nodePort}")
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  curl http://$NODE_IP:$NODE_PORT/health
+{{- else }}
+  kubectl port-forward svc/{{ include "coding-agent-a2a.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  curl http://localhost:{{ .Values.service.port }}/health
+{{- end }}
+
+A2A endpoint:  /a2a/jsonrpc
+MCP endpoint:  /mcp
+Agent card:    /.well-known/agent-card.json

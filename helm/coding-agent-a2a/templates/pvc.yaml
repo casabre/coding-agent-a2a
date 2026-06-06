@@ -1,0 +1,17 @@
+{{- if and (eq .Values.workspace.type "pvc") (not .Values.workspace.pvc.claimName) -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "coding-agent-a2a.fullname" . }}-workspace
+  labels:
+    {{- include "coding-agent-a2a.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.workspace.pvc.accessMode | default "ReadWriteOnce" }}
+  resources:
+    requests:
+      storage: {{ .Values.workspace.pvc.size | default "10Gi" }}
+  {{- if .Values.workspace.pvc.storageClass }}
+  storageClassName: {{ .Values.workspace.pvc.storageClass }}
+  {{- end }}
+{{- end }}
