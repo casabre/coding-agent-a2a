@@ -72,6 +72,29 @@ async function startServer(config = baseConfig): Promise<{ server: http.Server; 
   return { server, port: addr.port };
 }
 
+const authConfig: Config = {
+  ...baseConfig,
+  authEnabled: true,
+  authIssuer: 'https://idp.example.com',
+  authAudience: 'coding-agent',
+  authJwksUri: 'https://idp.example.com/.well-known/jwks.json',
+  authAuthorizationUrl: 'https://idp.example.com/authorize',
+  authTokenUrl: 'https://idp.example.com/token',
+  authServerUrl: 'http://localhost:41244',
+  authResourceUrl: 'http://localhost:41244/mcp',
+};
+
+describe('Combined server — production verifier path', () => {
+  it('createCombinedApp with authEnabled and no injected verifier — no-token request returns 401', async () => {
+    // Exercises combined-server.ts:32 — createTokenVerifier(config) called when options.verifier is absent
+    const app = createCombinedApp(authConfig, mockAdapter);
+    const res = await request(app)
+      .post('/a2a/jsonrpc')
+      .send({ jsonrpc: '2.0', id: 1, method: 'message/send', params: {} });
+    expect(res.status).toBe(401);
+  });
+});
+
 describe('Combined server (A2A + MCP/HTTP)', () => {
   describe('A2A surface still works', () => {
     it('GET /.well-known/agent-card.json returns 200', async () => {

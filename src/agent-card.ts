@@ -41,8 +41,8 @@ export function buildAgentCard(config: Config, adapter: CodingAgentAdapter): Age
         type: 'oauth2',
         flows: {
           authorizationCode: {
-            authorizationUrl: config.authAuthorizationUrl ?? `${config.authServerUrl}/authorize`,
-            tokenUrl: config.authTokenUrl ?? `${config.authServerUrl}/token`,
+            authorizationUrl: config.authAuthorizationUrl!,
+            tokenUrl: config.authTokenUrl!,
             scopes: Object.fromEntries(
               (config.authRequiredScopes ?? []).map((s) => [s, s]),
             ),

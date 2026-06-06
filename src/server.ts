@@ -1,6 +1,6 @@
 import express from 'express';
 import type { Express, Request } from 'express';
-import { DefaultRequestHandler, InMemoryTaskStore, UnauthenticatedUser } from '@a2a-js/sdk/server';
+import { DefaultRequestHandler, InMemoryTaskStore } from '@a2a-js/sdk/server';
 import { agentCardHandler, jsonRpcHandler, UserBuilder } from '@a2a-js/sdk/server/express';
 import type { AgentExecutor, User } from '@a2a-js/sdk/server';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
@@ -46,14 +46,11 @@ export function createApp(
       resourceMetadataUrl: config.authResourceUrl,
     });
     const userBuilder = (req: Request): Promise<User> => {
-      const auth = req.auth;
-      if (auth) {
-        return Promise.resolve({
-          get isAuthenticated() { return true; },
-          get userName() { return auth.clientId || 'unknown'; },
-        } as User);
-      }
-      return Promise.resolve(new UnauthenticatedUser());
+      const auth = req.auth!;
+      return Promise.resolve({
+        get isAuthenticated() { return true; },
+        get userName() { return auth.clientId || 'unknown'; },
+      } as User);
     };
 
     app.use('/a2a/jsonrpc', authMw, jsonRpcHandler({ requestHandler: handler, userBuilder }));

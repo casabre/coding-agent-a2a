@@ -39,6 +39,21 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('loadConfig — boolEnv passthrough', () => {
+  it('accepts boolean value from JSON config file for agentForce', async () => {
+    // Exercises config.ts boolEnv: typeof val === 'boolean' branch (JSON files provide real booleans)
+    const path = join(tmpdir(), `config-test-bool-${Date.now()}.json`);
+    writeFileSync(path, JSON.stringify({ agentForce: false }));
+    process.env['CONFIG_FILE'] = path;
+    try {
+      const config = await loadFreshConfig();
+      expect(config.agentForce).toBe(false);
+    } finally {
+      unlinkSync(path);
+    }
+  });
+});
+
 describe('loadConfig — CONFIG_FILE', () => {
   it('loads values from JSON file', async () => {
     const path = join(tmpdir(), `config-test-${Date.now()}.json`);
@@ -189,6 +204,19 @@ describe('loadConfig — AUTH_SERVER_URL defaults', () => {
     process.env['PORT'] = '41242';
     const config = await loadFreshConfig();
     expect(config.authResourceUrl).toBe('http://localhost:41242/mcp');
+  });
+});
+
+describe('loadConfig — AUTH_ALLOWED_REDIRECT_URIS parsing', () => {
+  it('parses comma-separated redirect URIs into array', async () => {
+    process.env['AUTH_ALLOWED_REDIRECT_URIS'] = 'https://a.example.com/cb,https://b.example.com/cb';
+    const config = await loadFreshConfig();
+    expect(config.authAllowedRedirectUris).toEqual(['https://a.example.com/cb', 'https://b.example.com/cb']);
+  });
+
+  it('returns undefined when AUTH_ALLOWED_REDIRECT_URIS is not set', async () => {
+    const config = await loadFreshConfig();
+    expect(config.authAllowedRedirectUris).toBeUndefined();
   });
 });
 

@@ -22,7 +22,8 @@ export function createTokenVerifier(config: Config, jwksSet?: JSONWebKeySet): To
           audience: config.authAudience,
         }));
       } catch (err) {
-        throw new InvalidTokenError(err instanceof Error ? err.message : 'Token verification failed');
+        const message = err instanceof Error ? err.message : /* c8 ignore next */ 'Token verification failed';
+        throw new InvalidTokenError(message);
       }
 
       let scopes: string[] = [];

@@ -43,6 +43,15 @@ function signToken(
     .sign(privateKey);
 }
 
+describe('createTokenVerifier — remote JWKS path', () => {
+  it('creates verifier without jwksSet using createRemoteJWKSet', () => {
+    // Exercises the production path (line 14): createRemoteJWKSet(new URL(config.authJwksUri!))
+    const verifier = createTokenVerifier(baseConfig);
+    expect(verifier).toBeDefined();
+    expect(typeof verifier.verifyAccessToken).toBe('function');
+  });
+});
+
 describe('createTokenVerifier', () => {
   describe('valid token', () => {
     it('returns AuthInfo with correct clientId from sub claim', async () => {
@@ -80,6 +89,33 @@ describe('createTokenVerifier', () => {
       const info = await verifier.verifyAccessToken(token);
       expect(typeof info.expiresAt).toBe('number');
       expect(info.expiresAt).toBeGreaterThan(Date.now() / 1000);
+    });
+  });
+
+  describe('missing optional claims', () => {
+    it('returns empty clientId when sub claim is absent', async () => {
+      const token = await new SignJWT({ custom: 'value' })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuedAt()
+        .setIssuer('https://idp.example.com')
+        .setAudience('coding-agent')
+        .setExpirationTime('1h')
+        .sign(privateKey);
+      const verifier = createTokenVerifier(baseConfig, jwksSet);
+      const info = await verifier.verifyAccessToken(token);
+      expect(info.clientId).toBe('');
+    });
+
+    it('returns undefined expiresAt when exp claim is absent', async () => {
+      const token = await new SignJWT({ sub: 'client-1' })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-1' })
+        .setIssuedAt()
+        .setIssuer('https://idp.example.com')
+        .setAudience('coding-agent')
+        .sign(privateKey);
+      const verifier = createTokenVerifier(baseConfig, jwksSet);
+      const info = await verifier.verifyAccessToken(token);
+      expect(info.expiresAt).toBeUndefined();
     });
   });
 

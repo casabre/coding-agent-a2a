@@ -78,6 +78,55 @@ afterEach(() => {
 });
 
 describe('CursorRunner', () => {
+  describe('thinking event accumulation', () => {
+    it('injects last thinking text as done.summary', async () => {
+      const adapter = makeMockAdapter({
+        parseEvent: vi.fn((line: string): AgentEvent | null => {
+          try {
+            const parsed = JSON.parse(line) as Record<string, unknown>;
+            if (parsed['type'] === 'thinking') return { kind: 'thinking', text: parsed['text'] as string };
+            if (parsed['type'] === 'result') return { kind: 'done', summary: '' };
+            return null;
+          } catch { return null; }
+        }),
+      });
+      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const events: AgentEvent[] = [];
+      const donePromise = new Promise<void>((resolve) => {
+        runner.on('agent-event', (e) => events.push(e));
+        runner.on('done', () => resolve());
+      });
+
+      runner.start();
+      emitLine(JSON.stringify({ type: 'thinking', text: 'I will refactor this' }));
+      emitLine(JSON.stringify({ type: 'thinking', text: 'Actually, let me simplify' }));
+      emitLine(JSON.stringify({ type: 'result' }));
+      exitChild(0);
+
+      await donePromise;
+      const done = events.find((e) => e.kind === 'done') as { kind: 'done'; summary: string } | undefined;
+      expect(done?.summary).toBe('Actually, let me simplify');
+    });
+
+    it('done.summary is empty string when no thinking events emitted', async () => {
+      const adapter = makeMockAdapter();
+      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const events: AgentEvent[] = [];
+      const donePromise = new Promise<void>((resolve) => {
+        runner.on('agent-event', (e) => events.push(e));
+        runner.on('done', () => resolve());
+      });
+
+      runner.start();
+      emitLine(JSON.stringify({ type: 'result' }));
+      exitChild(0);
+
+      await donePromise;
+      const done = events.find((e) => e.kind === 'done') as { kind: 'done'; summary: string } | undefined;
+      expect(done?.summary).toBe('');
+    });
+  });
+
   describe('happy path', () => {
     it('emits agent-event for each valid NDJSON line and done on exit 0', async () => {
       const adapter = makeMockAdapter();
