@@ -16,7 +16,7 @@ vi.mock('node:child_process', () => ({
 }));
 
 import { spawn } from 'node:child_process';
-import { CursorRunner } from '../../src/cursor-runner.js';
+import { ProcessRunner } from '../../src/process-runner.js';
 
 const baseConfig: Config = {
   port: 41242,
@@ -77,7 +77,7 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('CursorRunner', () => {
+describe('ProcessRunner', () => {
   describe('stats capture and OTEL metrics', () => {
     it('captures stats from done event and passes to _pendingStats', async () => {
       const stats = { inputTokens: 42, outputTokens: 17, durationMs: 1234 };
@@ -90,7 +90,7 @@ describe('CursorRunner', () => {
           } catch { return null; }
         }),
       });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -117,7 +117,7 @@ describe('CursorRunner', () => {
           } catch { return null; }
         }),
       });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const donePromise = new Promise<void>((resolve) => { runner.on('done', () => resolve()); });
 
       runner.start();
@@ -140,7 +140,7 @@ describe('CursorRunner', () => {
           } catch { return null; }
         }),
       });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -160,7 +160,7 @@ describe('CursorRunner', () => {
 
     it('done.summary is empty string when no thinking events emitted', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -180,7 +180,7 @@ describe('CursorRunner', () => {
   describe('happy path', () => {
     it('emits agent-event for each valid NDJSON line and done on exit 0', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'do stuff', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'do stuff', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<number>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -213,7 +213,7 @@ describe('CursorRunner', () => {
           }
         }),
       });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -232,7 +232,7 @@ describe('CursorRunner', () => {
 
     it('buffers incomplete lines until newline arrives', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -252,7 +252,7 @@ describe('CursorRunner', () => {
 
     it('skips blank lines silently', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -272,7 +272,7 @@ describe('CursorRunner', () => {
       const adapter = makeMockAdapter({
         isApprovalPrompt: vi.fn(() => true),
       });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       const donePromise = new Promise<void>((resolve) => {
         runner.on('agent-event', (e) => events.push(e));
@@ -294,7 +294,7 @@ describe('CursorRunner', () => {
     it('emits error when spawn() throws synchronously', async () => {
       vi.mocked(spawn).mockImplementationOnce(() => { throw new Error('ENOENT'); });
       const adapter = makeMockAdapter({ resolveBinary: vi.fn(() => '/missing/agent') });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const errorPromise = new Promise<Error>((resolve) => {
         runner.on('error', (e) => resolve(e));
       });
@@ -319,7 +319,7 @@ describe('CursorRunner', () => {
       vi.mocked(spawn).mockReturnValueOnce(childNoStdout as unknown as ReturnType<typeof spawn>);
 
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const errorPromise = new Promise<Error>((resolve) => {
         runner.on('error', (e) => resolve(e));
       });
@@ -334,7 +334,7 @@ describe('CursorRunner', () => {
   describe('process exit handling', () => {
     it('emits done with non-zero code on non-zero exit', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const donePromise = new Promise<number>((resolve) => {
         runner.on('done', (code) => resolve(code));
       });
@@ -348,7 +348,7 @@ describe('CursorRunner', () => {
 
     it('emits done with code -1 on null close (signal kill)', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const donePromise = new Promise<number>((resolve) => {
         runner.on('done', (code) => resolve(code));
       });
@@ -362,7 +362,7 @@ describe('CursorRunner', () => {
 
     it('emits error on spawn error event with binary in message', async () => {
       const adapter = makeMockAdapter({ resolveBinary: vi.fn(() => '/bad/path/agent') });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const errorPromise = new Promise<Error>((resolve) => {
         runner.on('error', (e) => resolve(e));
       });
@@ -378,7 +378,7 @@ describe('CursorRunner', () => {
   describe('cancel()', () => {
     it('sends SIGTERM to child process', () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       runner.start();
       runner.cancel();
       expect(mockChild.kill).toHaveBeenCalledWith('SIGTERM');
@@ -386,7 +386,7 @@ describe('CursorRunner', () => {
 
     it('ignores data arriving on stdout after cancel', () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const events: AgentEvent[] = [];
       runner.on('agent-event', (e) => events.push(e));
 
@@ -400,13 +400,13 @@ describe('CursorRunner', () => {
 
     it('does not crash when called before start (no child)', () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       expect(() => runner.cancel()).not.toThrow();
     });
 
     it('does not throw when called on already-exited process', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const donePromise = new Promise<void>((resolve) => {
         runner.on('done', () => resolve());
       });
@@ -420,7 +420,7 @@ describe('CursorRunner', () => {
   describe('resume()', () => {
     it('writes answer to stdin', () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       runner.start();
       runner.resume('y');
       expect(mockChild.stdin.write).toHaveBeenCalledWith('y\n');
@@ -430,14 +430,14 @@ describe('CursorRunner', () => {
   describe('adapter integration', () => {
     it('spawns binary from adapter.resolveBinary()', () => {
       const adapter = makeMockAdapter({ resolveBinary: vi.fn(() => 'my-agent-binary') });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       runner.start();
       expect(vi.mocked(spawn).mock.calls[0][0]).toBe('my-agent-binary');
     });
 
     it('passes args from adapter.buildArgv() to spawn', () => {
       const adapter = makeMockAdapter({ buildArgv: vi.fn(() => ['--flag', 'value', 'task-text']) });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       runner.start();
       expect(vi.mocked(spawn).mock.calls[0][1]).toEqual(['--flag', 'value', 'task-text']);
     });
@@ -445,7 +445,7 @@ describe('CursorRunner', () => {
     it('passes task, repoPath, model, force, timeoutMs to adapter.buildArgv()', () => {
       const adapter = makeMockAdapter();
       const config = { ...baseConfig, agentModel: 'claude-opus', agentForce: false, agentRepoPath: '/my/repo', agentTimeoutMs: 3000 };
-      const runner = new CursorRunner({ task: 'do stuff', adapter, config });
+      const runner = new ProcessRunner({ task: 'do stuff', adapter, config });
       runner.start();
       expect(vi.mocked(adapter.buildArgv)).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -461,7 +461,7 @@ describe('CursorRunner', () => {
     it('passes correct cwd to spawn from config.agentRepoPath', () => {
       const adapter = makeMockAdapter();
       const config = { ...baseConfig, agentRepoPath: '/my/repo' };
-      const runner = new CursorRunner({ task: 'p', adapter, config });
+      const runner = new ProcessRunner({ task: 'p', adapter, config });
       runner.start();
       const opts = vi.mocked(spawn).mock.calls[0][2] as { cwd: string };
       expect(opts.cwd).toBe('/my/repo');
@@ -473,7 +473,7 @@ describe('CursorRunner', () => {
       vi.useFakeTimers();
       const adapter = makeMockAdapter();
       const config = { ...baseConfig, agentTimeoutMs: 1000 };
-      const runner = new CursorRunner({ task: 'p', adapter, config });
+      const runner = new ProcessRunner({ task: 'p', adapter, config });
       const donePromise = new Promise<number>((resolve) => {
         runner.on('done', (code) => resolve(code));
       });
@@ -493,7 +493,7 @@ describe('CursorRunner', () => {
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const adapter = makeMockAdapter({ parseEvent: vi.fn(() => null), isApprovalPrompt: vi.fn(() => false) });
       const config = { ...baseConfig, logLevel: 'debug' as const };
-      const runner = new CursorRunner({ task: 'p', adapter, config });
+      const runner = new ProcessRunner({ task: 'p', adapter, config });
       const donePromise = new Promise<void>((resolve) => {
         runner.on('done', () => resolve());
       });
@@ -512,7 +512,7 @@ describe('CursorRunner', () => {
     it('does not crash when stdin.end() throws', () => {
       const adapter = makeMockAdapter();
       mockChild.stdin.end = vi.fn(() => { throw new Error('stdin error'); });
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       expect(() => runner.start()).not.toThrow();
     });
   });
@@ -521,7 +521,7 @@ describe('CursorRunner', () => {
     it('sends SIGKILL if process still alive after 2s post-SIGTERM', async () => {
       vi.useFakeTimers();
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       runner.start();
 
       runner.cancel();
@@ -540,7 +540,7 @@ describe('CursorRunner', () => {
       vi.useFakeTimers();
       const adapter = makeMockAdapter();
       const config = { ...baseConfig, agentIdleExitMs: 2000 };
-      const runner = new CursorRunner({ task: 'p', adapter, config });
+      const runner = new ProcessRunner({ task: 'p', adapter, config });
       const donePromise = new Promise<number>((resolve) => {
         runner.on('done', (code) => resolve(code));
       });
@@ -558,7 +558,7 @@ describe('CursorRunner', () => {
       vi.useFakeTimers();
       const adapter = makeMockAdapter();
       const config = { ...baseConfig, agentIdleExitMs: 1000 };
-      const runner = new CursorRunner({ task: 'p', adapter, config });
+      const runner = new ProcessRunner({ task: 'p', adapter, config });
       const donePromise = new Promise<number>((resolve) => {
         runner.on('done', (code) => resolve(code));
       });
@@ -583,7 +583,7 @@ describe('CursorRunner', () => {
   describe('stderr capture', () => {
     it('stderr content is passed to done event', async () => {
       const adapter = makeMockAdapter();
-      const runner = new CursorRunner({ task: 'p', adapter, config: baseConfig });
+      const runner = new ProcessRunner({ task: 'p', adapter, config: baseConfig });
       const donePromise = new Promise<string>((resolve) => {
         runner.on('done', (_code, stderr) => resolve(stderr));
       });

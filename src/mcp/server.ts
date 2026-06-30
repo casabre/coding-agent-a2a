@@ -1,5 +1,5 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CodingAgentAdapter } from '../adapters/base.js';
+import type { ProcessAdapter } from '../adapters/base.js';
 import type { Config } from '../types.js';
 import { McpTaskManager } from './task-manager.js';
 import { registerTools } from './tools.js';
@@ -12,7 +12,7 @@ import { registerTools } from './tools.js';
  * Connect it via {@link startStdioTransport} (stdio) or {@link createHttpTransport} (HTTP).
  */
 export function createMcpServer(
-  adapter: CodingAgentAdapter,
+  adapter: ProcessAdapter,
   config: Config,
 ): { server: McpServer; taskManager: McpTaskManager } {
   const server = new McpServer({

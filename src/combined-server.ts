@@ -1,6 +1,6 @@
 import cors from 'cors';
 import type { Express } from 'express';
-import type { CodingAgentAdapter } from './adapters/base.js';
+import type { ProcessAdapter } from './adapters/base.js';
 import type { Config } from './types.js';
 import type { AppOptions } from './server.js';
 import { createApp } from './server.js';
@@ -20,7 +20,7 @@ import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middlew
  */
 export function createCombinedApp(
   config: Config,
-  adapter: CodingAgentAdapter,
+  adapter: ProcessAdapter,
   options?: AppOptions,
 ): Express {
   const app = createApp(config, adapter, options);

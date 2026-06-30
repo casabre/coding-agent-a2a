@@ -56,8 +56,8 @@ src/
 ├── combined-server.ts    Express app factory (A2A + MCP/HTTP)
 ├── server.ts             A2A-only Express app factory
 ├── agent-card.ts         A2A AgentCard builder
-├── cursor-executor.ts    A2A AgentExecutor (spawns runner per task)
-├── cursor-runner.ts      Child-process manager + NDJSON stream parser
+├── agent-task-executor.ts    A2A AgentExecutor (spawns runner per task)
+├── process-runner.ts      Child-process manager + NDJSON stream parser
 ├── a2a-mapper.ts         Pure: AgentEvent → A2A SDK event(s)
 ├── event-bus.ts          Process-wide pub/sub (EventBus singleton)
 │
@@ -79,8 +79,8 @@ tests/
 ├── unit/
 │   ├── a2a-mapper.test.ts
 │   ├── config.test.ts
-│   ├── cursor-executor.test.ts
-│   ├── cursor-runner.test.ts
+│   ├── agent-task-executor.test.ts
+│   ├── process-runner.test.ts
 │   ├── event-bus.test.ts
 │   ├── adapters/
 │   │   ├── cursor.test.ts
@@ -109,13 +109,13 @@ The test suite follows a strict pyramid: many unit tests, a handful of integrati
 
 Each `src/` module has a corresponding unit test. External I/O is mocked:
 
-- **`cursor-runner.test.ts`** — `node:child_process.spawn` is mocked via `vi.mock`. A controllable `EventEmitter` with mock `stdout`/`stderr`/`stdin` streams stands in for the real child process. Tests verify NDJSON parsing, timeout logic, idle-kill, SIGTERM/SIGKILL sequencing.
+- **`process-runner.test.ts`** — `node:child_process.spawn` is mocked via `vi.mock`. A controllable `EventEmitter` with mock `stdout`/`stderr`/`stdin` streams stands in for the real child process. Tests verify NDJSON parsing, timeout logic, idle-kill, SIGTERM/SIGKILL sequencing.
 
 - **`a2a-mapper.test.ts`** — No mocks. The mapper is a pure function; all 17 cases assert the exact A2A event shape returned for each `AgentEvent` variant.
 
-- **`cursor-executor.test.ts`** — Both `cursor-runner.js` and `a2a-mapper.js` are mocked. Tests assert that the executor wires events correctly, handles cancellation, and cleans up the runner map.
+- **`agent-task-executor.test.ts`** — Both `process-runner.js` and `a2a-mapper.js` are mocked. Tests assert that the executor wires events correctly, handles cancellation, and cleans up the runner map.
 
-- **`mcp/task-manager.test.ts`** — `cursor-runner.js` and `event-bus.js` are mocked. Tests cover the full job lifecycle: `startJob` → `pollJob` → `getResult` / `cancelJob`.
+- **`mcp/task-manager.test.ts`** — `process-runner.js` and `event-bus.js` are mocked. Tests cover the full job lifecycle: `startJob` → `pollJob` → `getResult` / `cancelJob`.
 
 - **`mcp/tools.test.ts`** — `McpTaskManager` is a mock object. Tests call each tool via an in-memory MCP client (`InMemoryTransport.createLinkedPair()`) and assert the JSON responses.
 
@@ -137,10 +137,10 @@ Each `src/` module has a corresponding unit test. External I/O is mocked:
 
 ### Mocking pattern for `vi.mock` with EventEmitter
 
-Several tests mock `CursorRunner` using Vitest's module mock with a shared singleton:
+Several tests mock `ProcessRunner` using Vitest's module mock with a shared singleton:
 
 ```typescript
-vi.mock('../../src/cursor-runner.js', async () => {
+vi.mock('../../src/process-runner.js', async () => {
   const { EventEmitter } = await import('node:events');
   const instance = new EventEmitter() as EventEmitter & {
     start: ReturnType<typeof vi.fn>;
@@ -148,8 +148,8 @@ vi.mock('../../src/cursor-runner.js', async () => {
   };
   instance.start = vi.fn();
   instance.cancel = vi.fn();
-  const CursorRunner = vi.fn(() => instance);
-  return { CursorRunner, __instance: instance };
+  const ProcessRunner = vi.fn(() => instance);
+  return { ProcessRunner, __instance: instance };
 });
 ```
 
@@ -209,11 +209,11 @@ Here is how a single task travels through the system from MCP call to CLI and ba
 
 3. McpTaskManager:
    a. Generates jobId = "uuid-1234"
-   b. Creates CursorRunner({ task, adapter, config })
+   b. Creates ProcessRunner({ task, adapter, config })
    c. Registers listeners on runner
    d. Calls runner.start()
 
-4. CursorRunner:
+4. ProcessRunner:
    a. Calls adapter.resolveBinary() → "cursor-agent"
    b. Calls adapter.buildArgv({ task, repoPath, ... }) →
       ["--print", "--output-format", "stream-json", "-f", "refactor auth"]
@@ -222,7 +222,7 @@ Here is how a single task travels through the system from MCP call to CLI and ba
 5. CLI writes to stdout:
    {"type":"system/init","model":"claude-opus-4-5"}
 
-6. CursorRunner:
+6. ProcessRunner:
    a. Reads buffered stdout line-by-line
    b. For each line: adapter.isApprovalPrompt(line) → false
    c. adapter.parseEvent(line) → { kind: 'init', model: 'claude-opus-4-5' }

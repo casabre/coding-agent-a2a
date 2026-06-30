@@ -33,7 +33,7 @@ graph TB
         Express["Express app"]
 
         subgraph A2ALayer["A2A layer"]
-            Executor["CursorAgentExecutor"]
+            Executor["AgentTaskExecutor"]
             Mapper["a2a-mapper"]
         end
 
@@ -43,7 +43,7 @@ graph TB
         end
 
         subgraph SharedLayer["Shared"]
-            Runner["CursorRunner"]
+            Runner["ProcessRunner"]
             Adapters["Adapters\n(cursor / claude-code)"]
             EvBus["EventBus"]
         end
@@ -82,8 +82,8 @@ src/
 ├── server.ts                  A2A-only Express app factory (used by combined-server)
 ├── agent-card.ts              Build the A2A AgentCard object
 │
-├── cursor-executor.ts         A2A AgentExecutor: spawns CursorRunner per task, publishes A2A events
-├── cursor-runner.ts           Spawn CLI → stream NDJSON stdout → emit AgentEvents
+├── agent-task-executor.ts         A2A AgentExecutor: spawns ProcessRunner per task, publishes A2A events
+├── process-runner.ts           Spawn CLI → stream NDJSON stdout → emit AgentEvents
 ├── a2a-mapper.ts              Pure: AgentEvent → A2A SDK event(s)
 │
 ├── event-bus.ts               Process-wide pub/sub for MCP job events
@@ -98,7 +98,7 @@ src/
 └── mcp/
     ├── server.ts              createMcpServer: create McpServer + register tools
     ├── tools.ts               registerTools: wire 5 MCP tools to McpTaskManager
-    ├── task-manager.ts        McpTaskManager: UUID-keyed job store + CursorRunner per job
+    ├── task-manager.ts        McpTaskManager: UUID-keyed job store + ProcessRunner per job
     ├── stdio-transport.ts     Connect McpServer to StdioServerTransport
     └── http-transport.ts      Create StreamableHTTPServerTransport for /mcp routes
 ```
@@ -117,8 +117,8 @@ graph LR
     CS --> HTTPT["mcp/http-transport"]
 
     SRV  --> AC["agent-card.ts"]
-    SRV  --> EX["cursor-executor.ts"]
-    EX   --> RN["cursor-runner.ts"]
+    SRV  --> EX["agent-task-executor.ts"]
+    EX   --> RN["process-runner.ts"]
     EX   --> MP["a2a-mapper.ts"]
 
     MCPSRV --> TM["mcp/task-manager.ts"]
@@ -150,28 +150,28 @@ The `CodingAgentAdapter` interface is the only piece a contributor must implemen
 3. How do I parse one NDJSON line? (`parseEvent`)
 4. Is this line an approval prompt? (`isApprovalPrompt` / `approvalResponse`)
 
-Adapters are stateless singletons. All per-run state lives in `CursorRunner`.
+Adapters are stateless singletons. All per-run state lives in `ProcessRunner`.
 
-### `cursor-runner.ts` — process management
+### `process-runner.ts` — process management
 
-A single `CursorRunner` manages exactly one child process. It:
+A single `ProcessRunner` manages exactly one child process. It:
 - Spawns the binary with the adapter-built argv.
 - Buffers stdout until newlines arrive and parses each line.
 - Enforces hard timeout (`agentTimeoutMs`) and idle-kill timeout (`agentIdleExitMs`).
 - Cancels cleanly: SIGTERM → SIGKILL after 2 s.
 - Emits typed `AgentEvent`s to its listeners.
 
-Despite the "Cursor" name, `CursorRunner` is adapter-agnostic — it delegates all CLI-specific logic to the adapter.
+`ProcessRunner` is adapter-agnostic — it owns the child-process lifecycle and delegates all CLI-specific logic to the adapter.
 
 ### `a2a-mapper.ts` — pure translation
 
 A stateless function that converts an `AgentEvent` into zero, one, or two A2A SDK events. It is completely pure (no I/O, no side effects) and is tested exhaustively in isolation. Keeping the mapping separate from the executor makes both easier to test and modify.
 
-### `cursor-executor.ts` — A2A orchestration
+### `agent-task-executor.ts` — A2A orchestration
 
 Implements `AgentExecutor` from `@a2a-js/sdk`. The SDK calls `execute()` once per incoming message. The executor:
 1. Extracts the text prompt from the A2A message parts.
-2. Creates a `CursorRunner`, wires event listeners.
+2. Creates a `ProcessRunner`, wires event listeners.
 3. On each `AgentEvent`, calls `mapAgentEventToA2A` and publishes the result via the SDK's `ExecutionEventBus`.
 4. On `done` or `error`, calls `eventBus.finished()` and resolves the promise.
 
@@ -179,7 +179,7 @@ For the `approval_required` / `input-required` flow, the runner stays alive betw
 
 ### `mcp/task-manager.ts` — MCP job store
 
-Plays the same role as `CursorAgentExecutor` but for MCP: it creates one `CursorRunner` per `startJob()` call, buffers all events in memory, and exposes a polling API. Jobs persist until explicitly cancelled or until `getResult()` reads a completed job.
+Plays the same role as `AgentTaskExecutor` but for MCP: it creates one `ProcessRunner` per `startJob()` call, buffers all events in memory, and exposes a polling API. Jobs persist until explicitly cancelled or until `getResult()` reads a completed job.
 
 ### `event-bus.ts` — cross-cutting pub/sub
 
@@ -195,13 +195,13 @@ An A2A client connects over HTTP. `SendStreamingMessage` is preferred for long t
 sequenceDiagram
     participant C  as A2A Client
     participant SDK as @a2a-js/sdk
-    participant X  as CursorAgentExecutor
-    participant R  as CursorRunner
+    participant X  as AgentTaskExecutor
+    participant R  as ProcessRunner
     participant CLI as CLI process
 
     C->>SDK: POST /a2a/jsonrpc (SendStreamingMessage)
     SDK->>X: execute(requestContext, eventBus)
-    X->>R: new CursorRunner(); start()
+    X->>R: new ProcessRunner(); start()
     R->>CLI: spawn --print --output-format stream-json
 
     CLI-->>R: {"type":"system/init","model":"..."}
@@ -248,11 +248,11 @@ MCP uses a job-based polling model instead of server-sent events, because MCP to
 sequenceDiagram
     participant M   as MCP Host
     participant TM  as McpTaskManager
-    participant R   as CursorRunner
+    participant R   as ProcessRunner
     participant CLI as CLI process
 
     M->>TM: coding_agent_run {task}
-    TM->>R: new CursorRunner(); start()
+    TM->>R: new ProcessRunner(); start()
     R->>CLI: spawn
     TM-->>M: {job_id: "uuid"}
 
@@ -324,7 +324,7 @@ The `EventBus` singleton (`src/event-bus.ts`) decouples event producers (`McpTas
 
 ```mermaid
 graph LR
-    RN["CursorRunner"] -->|"emit 'agent-event'"| TM["McpTaskManager"]
+    RN["ProcessRunner"] -->|"emit 'agent-event'"| TM["McpTaskManager"]
     TM --> BUF["job.events\nbuffer"]
     TM --> EB["EventBus\nsingleton"]
     BUF -->|"pollJob(id, since)"| POLL["coding_agent_poll\nresponse"]
@@ -340,7 +340,7 @@ The A2A executor does **not** use the event bus — it publishes directly to the
 
 ## 8. Process lifecycle
 
-Each `CursorRunner` owns one child process. The `_cancelled` and `_exited` flags prevent duplicate `done` emissions when multiple termination paths race.
+Each `ProcessRunner` owns one child process. The `_cancelled` and `_exited` flags prevent duplicate `done` emissions when multiple termination paths race.
 
 ```mermaid
 flowchart TD
@@ -369,7 +369,7 @@ flowchart TD
 
 Both A2A and MCP are served by the same Express app. This simplifies deployment (one process, one port, one systemd unit) and avoids port-allocation conflicts when running locally. The MCP HTTP transport is always mounted at `/mcp`, even when `MCP_TRANSPORT=stdio` — unused routes are harmless.
 
-### Separate McpTaskManager and CursorAgentExecutor
+### Separate McpTaskManager and AgentTaskExecutor
 
 A2A uses the SDK's `InMemoryTaskStore` and `DefaultRequestHandler` for task state. MCP uses its own `McpTaskManager`. Sharing state would create tight coupling between two independent protocol layers and complicate testing. The cost is a small duplication of job-tracking logic.
 

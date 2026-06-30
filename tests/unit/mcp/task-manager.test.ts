@@ -3,8 +3,8 @@ import { EventEmitter } from 'node:events';
 import type { Config } from '../../../src/types.js';
 import type { CodingAgentAdapter, AgentEvent } from '../../../src/adapters/base.js';
 
-// Mock CursorRunner before importing
-vi.mock('../../../src/cursor-runner.js', async () => {
+// Mock ProcessRunner before importing
+vi.mock('../../../src/process-runner.js', async () => {
   const { EventEmitter } = await import('node:events');
   const instance = new EventEmitter() as EventEmitter & {
     start: ReturnType<typeof vi.fn>;
@@ -12,8 +12,8 @@ vi.mock('../../../src/cursor-runner.js', async () => {
   };
   instance.start = vi.fn();
   instance.cancel = vi.fn();
-  const CursorRunner = vi.fn(() => instance);
-  return { CursorRunner, __instance: instance };
+  const ProcessRunner = vi.fn(() => instance);
+  return { ProcessRunner, __instance: instance };
 });
 
 // Mock event-bus to isolate from global state
@@ -26,11 +26,11 @@ vi.mock('../../../src/event-bus.js', () => ({
 }));
 
 import { McpTaskManager } from '../../../src/mcp/task-manager.js';
-import { CursorRunner } from '../../../src/cursor-runner.js';
+import { ProcessRunner } from '../../../src/process-runner.js';
 import { eventBus } from '../../../src/event-bus.js';
 
-const runnerMod = await import('../../../src/cursor-runner.js') as unknown as {
-  CursorRunner: ReturnType<typeof vi.fn>;
+const runnerMod = await import('../../../src/process-runner.js') as unknown as {
+  ProcessRunner: ReturnType<typeof vi.fn>;
   __instance: EventEmitter & { start: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> };
 };
 
@@ -61,7 +61,7 @@ const baseConfig: Config = {
 };
 
 beforeEach(() => {
-  vi.mocked(CursorRunner).mockClear();
+  vi.mocked(ProcessRunner).mockClear();
   const runner = getMockRunner();
   runner.removeAllListeners();
   runner.start = vi.fn();
@@ -87,7 +87,7 @@ describe('McpTaskManager', () => {
     it('applies model override to config', () => {
       const mgr = new McpTaskManager(mockAdapter, baseConfig);
       mgr.startJob('task', { model: 'override-model' });
-      expect(vi.mocked(CursorRunner)).toHaveBeenCalledWith(
+      expect(vi.mocked(ProcessRunner)).toHaveBeenCalledWith(
         expect.objectContaining({ config: expect.objectContaining({ agentModel: 'override-model' }) }),
       );
     });
@@ -95,7 +95,7 @@ describe('McpTaskManager', () => {
     it('applies repoPath override to config', () => {
       const mgr = new McpTaskManager(mockAdapter, baseConfig);
       mgr.startJob('task', { repoPath: '/custom/repo' });
-      expect(vi.mocked(CursorRunner)).toHaveBeenCalledWith(
+      expect(vi.mocked(ProcessRunner)).toHaveBeenCalledWith(
         expect.objectContaining({ config: expect.objectContaining({ agentRepoPath: '/custom/repo' }) }),
       );
     });
@@ -103,7 +103,7 @@ describe('McpTaskManager', () => {
     it('applies force override to config', () => {
       const mgr = new McpTaskManager(mockAdapter, baseConfig);
       mgr.startJob('task', { force: false });
-      expect(vi.mocked(CursorRunner)).toHaveBeenCalledWith(
+      expect(vi.mocked(ProcessRunner)).toHaveBeenCalledWith(
         expect.objectContaining({ config: expect.objectContaining({ agentForce: false }) }),
       );
     });

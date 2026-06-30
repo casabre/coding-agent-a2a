@@ -1,4 +1,4 @@
-import type { CodingAgentAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
+import type { ProcessAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
 import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
 
 /**
@@ -8,7 +8,7 @@ import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
  * Supports --yes and --auto-approve flags for auto-approval,
  * --model for model selection, and --cwd for working directory.
  */
-export class CodexAdapter implements CodingAgentAdapter {
+export class CodexAdapter implements ProcessAdapter {
   readonly name = 'codex';
   readonly capabilities: AdapterCapabilities = {
     streaming: true,

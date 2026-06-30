@@ -46,7 +46,7 @@ export interface AgentStats {
 }
 
 /**
- * Normalised event emitted by {@link CursorRunner} for every parsed NDJSON line
+ * Normalised event emitted by {@link ProcessRunner} for every parsed NDJSON line
  * from the CLI's stdout stream. Discriminated by `kind`.
  *
  * Sequence for a successful run: `init` → one or more (`thinking` | `tool_use` | `tool_result`) → `done`
@@ -63,17 +63,17 @@ export type AgentEvent =
   | { kind: 'error'; message: string };
 
 /**
- * Port that every coding-agent CLI adapter must implement.
+ * Transport-agnostic port that every coding-agent adapter must implement,
+ * regardless of how the backend is reached (CLI subprocess, HTTP API, …).
  *
- * An adapter is the thin translation layer between this server and a specific CLI tool.
- * It is responsible for:
- * 1. Locating the CLI binary on disk ({@link resolveBinary}).
- * 2. Building the CLI argument vector ({@link buildArgv}).
- * 3. Parsing each NDJSON stdout line into a typed {@link AgentEvent} ({@link parseEvent}).
- * 4. Detecting interactive approval prompts and providing the canned auto-response
- *    ({@link isApprovalPrompt} / {@link approvalResponse}).
+ * It owns only what every backend can honor: an identity ({@link name}),
+ * advertised {@link capabilities}, and the ability to turn one line of the
+ * backend's streamed output into a typed {@link AgentEvent} ({@link parseEvent}).
  *
- * Adapters are stateless singleton objects — all per-run state lives in {@link CursorRunner}.
+ * CLI-specific concerns (binary resolution, argv, interactive approval) live in
+ * {@link ProcessAdapter}, so an HTTP-backed adapter need not implement them.
+ *
+ * Adapters are stateless singleton objects — all per-run state lives in the runner.
  *
  * @example Registering a custom adapter
  * ```typescript
@@ -89,6 +89,28 @@ export interface CodingAgentAdapter {
   readonly capabilities: AdapterCapabilities;
 
   /**
+   * Parses a single line of the backend's streamed output into a typed {@link AgentEvent}.
+   * Returns `null` for lines that should be silently skipped (malformed JSON, unknown type).
+   *
+   * @param line - A single non-empty, trimmed line from the backend's output stream.
+   */
+  parseEvent(line: string): AgentEvent | null;
+}
+
+/**
+ * Adapter for a backend driven as a local CLI subprocess.
+ *
+ * Extends {@link CodingAgentAdapter} with the process-only concerns:
+ * 1. Locating the CLI binary on disk ({@link resolveBinary}).
+ * 2. Building the CLI argument vector ({@link buildArgv}).
+ * 3. Detecting interactive approval prompts and providing the canned auto-response
+ *    ({@link isApprovalPrompt} / {@link approvalResponse}).
+ *
+ * These methods operate on stdin/stdout/argv and have no meaning for a non-process
+ * backend, so they are deliberately kept off the base {@link CodingAgentAdapter}.
+ */
+export interface ProcessAdapter extends CodingAgentAdapter {
+  /**
    * Returns the full path to the CLI binary, or the bare executable name if it is on `PATH`.
    * Reads from an env var first (e.g. `CURSOR_AGENT_PATH`) so users can override without recompiling.
    */
@@ -103,14 +125,6 @@ export interface CodingAgentAdapter {
    * @returns A flat string array passed directly to `spawn` (no shell expansion).
    */
   buildArgv(options: RunOptions): string[];
-
-  /**
-   * Parses a single NDJSON stdout line into a typed {@link AgentEvent}.
-   * Returns `null` for lines that should be silently skipped (malformed JSON, unknown type).
-   *
-   * @param line - A single non-empty, trimmed line from the CLI's stdout.
-   */
-  parseEvent(line: string): AgentEvent | null;
 
   /**
    * Returns `true` if the raw stdout line is an interactive approval prompt.

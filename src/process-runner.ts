@@ -3,29 +3,30 @@ import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { Span } from '@opentelemetry/api';
 import { SpanStatusCode } from '@opentelemetry/api';
-import type { CodingAgentAdapter, AgentEvent, AgentStats } from './adapters/base.js';
+import type { ProcessAdapter, AgentEvent, AgentStats } from './adapters/base.js';
+import type { Runner } from './runner.js';
 import type { Config } from './types.js';
 import { tracer, inputTokenCounter, outputTokenCounter, taskDurationHist, taskErrorCounter, context } from './telemetry.js';
 
-/** Construction options for {@link CursorRunner}. */
+/** Construction options for {@link ProcessRunner}. */
 export interface RunnerOptions {
   /** The task prompt passed as the final CLI argument. */
   task: string;
   /** Adapter that knows how to invoke the specific CLI tool. */
-  adapter: CodingAgentAdapter;
+  adapter: ProcessAdapter;
   /** Resolved server configuration (timeout, force flag, cwd, etc.). */
   config: Config;
 }
 
 /**
- * Typed event declarations for {@link CursorRunner}.
+ * Typed event declarations for {@link ProcessRunner}.
  *
  * - `"agent-event"` — emitted for each parsed {@link AgentEvent} from the CLI's stdout.
  * - `"done"` — emitted once when the process exits (exit code and accumulated stderr).
  * - `"error"` — emitted if the process cannot be spawned.
  */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export declare interface CursorRunner {
+export declare interface ProcessRunner {
   on(event: 'agent-event', listener: (e: AgentEvent) => void): this;
   on(event: 'done', listener: (exitCode: number, stderr: string) => void): this;
   on(event: 'error', listener: (err: Error) => void): this;
@@ -43,7 +44,7 @@ export declare interface CursorRunner {
  * To resume after `approval_required`: call {@link resume}.
  */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-declaration-merging
-export class CursorRunner extends EventEmitter {
+export class ProcessRunner extends EventEmitter implements Runner {
   private _child: ChildProcess | null = null;
   private _cancelled = false;
   private _exited = false;

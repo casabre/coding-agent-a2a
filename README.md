@@ -65,7 +65,7 @@ graph TB
         AuthMW["Bearer auth middleware\n(when AUTH_ENABLED=true)"]
         A2ARoute["POST /a2a/jsonrpc\nA2A layer"]
         MCPRoute["stdio or /mcp\nMCP layer"]
-        Runner["CursorRunner\nspawn + NDJSON parse"]
+        Runner["ProcessRunner\nspawn + NDJSON parse"]
         Adapters["Adapters\ncursor · claude-code · vibe · codex · opencode · generic"]
         OTEL["OTEL SDK\ntraces + metrics → OTLP"]
     end
