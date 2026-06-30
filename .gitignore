@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Test / coverage artifacts
+coverage/
+
+# CodeGraph index
+.codegraph/
+
+# Env / local
+.env
+.env.local
+*.log
