@@ -23,7 +23,9 @@ if (enabled) {
   // Graceful degradation: a bad endpoint or init error must never crash the server
   try {
     sdk.start();
-    process.on('SIGTERM', () => { sdk.shutdown().catch(() => {}); });
+    // Wrap in Promise.resolve so the handler never throws if shutdown() returns
+    // a non-thenable; a failed shutdown must never crash the server on SIGTERM.
+    process.on('SIGTERM', () => { void Promise.resolve(sdk.shutdown()).catch(() => {}); });
   } catch (e) {
     console.warn('[otel] SDK start failed, continuing without telemetry:', e);
   }
