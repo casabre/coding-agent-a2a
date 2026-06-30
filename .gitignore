@@ -1,16 +1,52 @@
-# Dependencies
+# ─── Dependencies ───────────────────────────────────────────────
 node_modules/
+.pnp
+.pnp.*
+jspm_packages/
 
-# Build output
+# ─── Build output ───────────────────────────────────────────────
 dist/
+build/
+out/
+lib/
+*.tsbuildinfo
+.tsbuildinfo
 
-# Test / coverage artifacts
+# ─── Test / coverage artifacts ──────────────────────────────────
 coverage/
+*.lcov
+.nyc_output/
+.vitest/
 
-# CodeGraph index
+# ─── Logs ───────────────────────────────────────────────────────
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ─── Environment / secrets ──────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Caches & tooling ───────────────────────────────────────────
+.npm
+.eslintcache
+.cache/
+.turbo/
+*.tgz
+
+# ─── CodeGraph index ────────────────────────────────────────────
 .codegraph/
 
-# Env / local
-.env
-.env.local
-*.log
+# ─── Editors / OS ───────────────────────────────────────────────
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
