@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { AgentEvent, CodingAgentAdapter } from '../adapters/base.js';
+import type { AgentEvent, ProcessAdapter } from '../adapters/base.js';
+import type { Runner } from '../runner.js';
 import type { Config } from '../types.js';
-import { CursorRunner } from '../cursor-runner.js';
+import { ProcessRunner } from '../process-runner.js';
 import { eventBus } from '../event-bus.js';
 
 /** Snapshot of a running or completed MCP job. */
@@ -17,7 +18,7 @@ export interface McpJob {
 /**
  * Tracks in-flight and recently completed MCP coding jobs.
  *
- * Each job maps to one {@link CursorRunner} that spawns the CLI process.
+ * Each job maps to one {@link ProcessRunner} that spawns the CLI process.
  * Jobs are identified by a UUID returned from {@link startJob}.
  *
  * Lifecycle:
@@ -29,11 +30,11 @@ export interface McpJob {
  * All events are also forwarded to the process-wide {@link eventBus} for external subscribers.
  */
 export class McpTaskManager {
-  private readonly _adapter: CodingAgentAdapter;
+  private readonly _adapter: ProcessAdapter;
   private readonly _config: Config;
-  private readonly _jobs = new Map<string, McpJob & { runner: CursorRunner }>();
+  private readonly _jobs = new Map<string, McpJob & { runner: Runner }>();
 
-  constructor(adapter: CodingAgentAdapter, config: Config) {
+  constructor(adapter: ProcessAdapter, config: Config) {
     this._adapter = adapter;
     this._config = config;
   }
@@ -53,8 +54,8 @@ export class McpTaskManager {
       agentRepoPath: overrides?.repoPath ?? this._config.agentRepoPath,
       agentForce: overrides?.force ?? this._config.agentForce,
     };
-    const runner = new CursorRunner({ task, adapter: this._adapter, config });
-    const job: McpJob & { runner: CursorRunner } = {
+    const runner = new ProcessRunner({ task, adapter: this._adapter, config });
+    const job: McpJob & { runner: Runner } = {
       runner,
       events: [],
       done: false,

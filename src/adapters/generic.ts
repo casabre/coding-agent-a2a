@@ -1,4 +1,4 @@
-import type { CodingAgentAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
+import type { ProcessAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
 import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
 
 export function tokenizeArgs(raw: string): string[] {
@@ -38,7 +38,7 @@ export function tokenizeArgs(raw: string): string[] {
  * 
  * Assumes the binary produces NDJSON-compatible streaming output.
  */
-export class GenericAdapter implements CodingAgentAdapter {
+export class GenericAdapter implements ProcessAdapter {
   readonly name = 'generic';
   readonly capabilities: AdapterCapabilities = {
     streaming: true,

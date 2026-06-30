@@ -2,17 +2,18 @@ import type { AgentExecutor, ExecutionEventBus, RequestContext } from '@a2a-js/s
 import { AgentEvent } from '@a2a-js/sdk/server';
 import { TaskState, Role, type Part } from '@a2a-js/sdk';
 import type { Config } from './types.js';
-import type { CodingAgentAdapter } from './adapters/base.js';
-import { CursorRunner } from './cursor-runner.js';
+import type { ProcessAdapter } from './adapters/base.js';
+import type { Runner } from './runner.js';
+import { ProcessRunner } from './process-runner.js';
 import { mapAgentEventToA2A } from './a2a-mapper.js';
 import { v4 as uuidv4 } from 'uuid';
 
-export class CursorAgentExecutor implements AgentExecutor {
+export class AgentTaskExecutor implements AgentExecutor {
   private readonly _config: Config;
-  private readonly _adapter: CodingAgentAdapter;
-  private readonly _activeRunners = new Map<string, CursorRunner>();
+  private readonly _adapter: ProcessAdapter;
+  private readonly _activeRunners = new Map<string, Runner>();
 
-  constructor(config: Config, adapter: CodingAgentAdapter) {
+  constructor(config: Config, adapter: ProcessAdapter) {
     this._config = config;
     this._adapter = adapter;
   }
@@ -42,7 +43,7 @@ export class CursorAgentExecutor implements AgentExecutor {
       metadata: undefined,
     }));
 
-    runner = new CursorRunner({ task: prompt, adapter: this._adapter, config: this._config });
+    runner = new ProcessRunner({ task: prompt, adapter: this._adapter, config: this._config });
     this._activeRunners.set(taskId, runner);
 
     return new Promise<void>((resolve) => {
@@ -96,7 +97,7 @@ export class CursorAgentExecutor implements AgentExecutor {
   cancelTask = async (taskId: string, eventBus: ExecutionEventBus): Promise<void> => {
     const runner = this._activeRunners.get(taskId);
     if (runner === undefined) {
-      console.warn(`[cursor-executor] cancelTask: no active runner for taskId=${taskId}`);
+      console.warn(`[agent-task-executor] cancelTask: no active runner for taskId=${taskId}`);
       return;
     }
     this._activeRunners.delete(taskId);

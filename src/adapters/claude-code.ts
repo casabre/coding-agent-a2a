@@ -1,9 +1,9 @@
-import type { CodingAgentAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
+import type { ProcessAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
 import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
 
 const APPROVAL_RE = /\[Y\/n\]|\(y\/N\)|\[y\/N\]|\(Y\/n\)/i;
 
-export class ClaudeCodeAdapter implements CodingAgentAdapter {
+export class ClaudeCodeAdapter implements ProcessAdapter {
   readonly name = 'claude-code';
 
   readonly capabilities: AdapterCapabilities = {

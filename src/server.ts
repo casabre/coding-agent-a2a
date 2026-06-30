@@ -6,10 +6,10 @@ import type { AgentExecutor, User } from '@a2a-js/sdk/server';
 import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';
 import { buildAgentCard } from './agent-card.js';
 import type { Config } from './types.js';
-import type { CodingAgentAdapter } from './adapters/base.js';
+import type { ProcessAdapter } from './adapters/base.js';
 import type { TokenVerifier } from './auth/verifier.js';
 import { createTokenVerifier } from './auth/verifier.js';
-import { CursorAgentExecutor } from './cursor-executor.js';
+import { AgentTaskExecutor } from './agent-task-executor.js';
 
 export interface AppOptions {
   executor?: AgentExecutor;
@@ -18,11 +18,11 @@ export interface AppOptions {
 
 export function createApp(
   config: Config,
-  adapter: CodingAgentAdapter,
+  adapter: ProcessAdapter,
   options?: AppOptions,
 ): Express {
   const agentCard = buildAgentCard(config, adapter);
-  const activeExecutor = options?.executor ?? new CursorAgentExecutor(config, adapter);
+  const activeExecutor = options?.executor ?? new AgentTaskExecutor(config, adapter);
   const taskStore = new InMemoryTaskStore();
   const handler = new DefaultRequestHandler(agentCard, taskStore, activeExecutor);
 

@@ -1,4 +1,4 @@
-import type { CodingAgentAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
+import type { ProcessAdapter, RunOptions, AdapterCapabilities, AgentEvent } from './base.js';
 import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
 
 /**
@@ -8,7 +8,7 @@ import { parseSharedNdjsonEvent } from './ndjson-helpers.js';
  * Supports --trust flag for auto-approval, --model for model selection,
  * and --workdir for working directory.
  */
-export class VibeAdapter implements CodingAgentAdapter {
+export class VibeAdapter implements ProcessAdapter {
   readonly name = 'vibe';
   readonly capabilities: AdapterCapabilities = {
     streaming: true,
