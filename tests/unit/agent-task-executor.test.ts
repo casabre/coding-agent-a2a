@@ -380,3 +380,21 @@ describe('AgentTaskExecutor routing', () => {
     expect(seen).toEqual([undefined, undefined]);
   });
 });
+
+describe('AgentTaskExecutor settled finalizer', () => {
+  it('removes the runner on settled so the next execute starts fresh', () => {
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter);
+    const ctx = makeContext({ taskId: 'task-s' });
+
+    void executor.execute(ctx, makeBus() as never);
+    expect(vi.mocked(ProcessRunner)).toHaveBeenCalledTimes(1);
+
+    // Finalizer fires — should evict the runner from the active map.
+    getMockRunner().emit('settled', 'succeeded');
+
+    // Same taskId again must build a NEW runner (not hit the resume path).
+    void executor.execute(ctx, makeBus() as never);
+    expect(vi.mocked(ProcessRunner)).toHaveBeenCalledTimes(2);
+    expect(getMockRunner().resume).not.toHaveBeenCalled();
+  });
+});

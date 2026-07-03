@@ -4,7 +4,7 @@ import type { ChildProcess } from 'node:child_process';
 import type { Span } from '@opentelemetry/api';
 import { SpanStatusCode } from '@opentelemetry/api';
 import type { ProcessAdapter, AgentEvent, AgentStats } from './adapters/base.js';
-import type { Runner } from './runner.js';
+import type { Runner, TerminalReason } from './runner.js';
 import type { Config } from './types.js';
 import { tracer, inputTokenCounter, outputTokenCounter, taskDurationHist, taskErrorCounter, context } from './telemetry.js';
 
@@ -30,9 +30,11 @@ export declare interface ProcessRunner {
   on(event: 'agent-event', listener: (e: AgentEvent) => void): this;
   on(event: 'done', listener: (exitCode: number, stderr: string) => void): this;
   on(event: 'error', listener: (err: Error) => void): this;
+  on(event: 'settled', listener: (reason: TerminalReason) => void): this;
   emit(event: 'agent-event', e: AgentEvent): boolean;
   emit(event: 'done', exitCode: number, stderr: string): boolean;
   emit(event: 'error', err: Error): boolean;
+  emit(event: 'settled', reason: TerminalReason): boolean;
 }
 
 /**
@@ -48,6 +50,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
   private _child: ChildProcess | null = null;
   private _cancelled = false;
   private _exited = false;
+  private _settled = false;
   private _timeoutHandle: ReturnType<typeof setTimeout> | null = null;
   private _idleHandle: ReturnType<typeof setTimeout> | null = null;
   private _stderrBuffer = '';
@@ -92,6 +95,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
         'error',
         new Error(`Failed to spawn "${binary}": ${String(err)}`),
       );
+      this._settle('failed');
       return;
     }
 
@@ -100,6 +104,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
     if (child.stdout === null || child.stderr === null) {
       this._finalizeOtel(-1);
       this.emit('error', new Error(`"${binary}" process has no stdout/stderr`));
+      this._settle('failed');
       return;
     }
 
@@ -141,6 +146,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
         }
         taskErrorCounter.add(1, { adapter: adapter.name, error_kind: 'spawn_error' });
         this.emit('error', new Error(`Failed to spawn "${binary}": ${err.message}`));
+        this._settle('failed');
       }
     });
 
@@ -150,9 +156,13 @@ export class ProcessRunner extends EventEmitter implements Runner {
       // Always finalize telemetry regardless of whether this is a normal exit,
       // a cancellation, or a timeout — _finalizeOtel is idempotent.
       this._finalizeOtel(exitCode);
-      if (this._cancelled || this._exited) return;
-      this._exited = true;
-      this.emit('done', exitCode, this._stderrBuffer);
+      if (!this._cancelled && !this._exited) {
+        this._exited = true;
+        this.emit('done', exitCode, this._stderrBuffer);
+      }
+      // `settled` fires on every close, including cancellation (which emits no done/error).
+      // Timeout/idle already settled ('timed-out') so _settle here is a guarded no-op for them.
+      this._settle(this._cancelled ? 'cancelled' : exitCode === 0 ? 'succeeded' : 'failed');
     });
 
     if (config.agentTimeoutMs > 0) {
@@ -163,6 +173,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
             this._exited = true;
             this.emit('done', -1, this._stderrBuffer);
           }
+          this._settle('timed-out');
         }
       }, config.agentTimeoutMs);
     }
@@ -176,7 +187,11 @@ export class ProcessRunner extends EventEmitter implements Runner {
     this._cancelled = true;
     this._clearTimers();
     const child = this._child;
-    if (child === null) return;
+    if (child === null) {
+      // Cancelled before the process started: no close event will fire, so settle here.
+      this._settle('cancelled');
+      return;
+    }
     child.kill('SIGTERM');
     const kill = setTimeout(() => {
       if (!this._exited) child.kill('SIGKILL');
@@ -187,6 +202,13 @@ export class ProcessRunner extends EventEmitter implements Runner {
   /** Writes `answer` to the child's stdin (followed by a newline) to respond to an `approval_required` prompt. */
   resume(answer: string): void {
     this._child?.stdin?.write(answer + '\n');
+  }
+
+  /** Emits `settled` exactly once. Idempotent — subsequent terminal paths are no-ops. */
+  private _settle(reason: TerminalReason): void {
+    if (this._settled) return;
+    this._settled = true;
+    this.emit('settled', reason);
   }
 
   private _processLine(line: string): void {
@@ -247,6 +269,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
           this._exited = true;
           this.emit('done', 0, this._stderrBuffer);
         }
+        this._settle('timed-out');
       }
     }, idleMs);
   }
