@@ -597,3 +597,51 @@ describe('ProcessRunner', () => {
     });
   });
 });
+
+  describe('settled event', () => {
+    it('emits settled("succeeded") after done on a clean exit', async () => {
+      const runner = new ProcessRunner({ task: 'p', adapter: makeMockAdapter(), config: baseConfig });
+      const order: string[] = [];
+      const settled = new Promise<string>((resolve) => {
+        runner.on('done', () => order.push('done'));
+        runner.on('settled', (reason) => { order.push('settled'); resolve(reason); });
+      });
+      runner.start();
+      exitChild(0);
+      expect(await settled).toBe('succeeded');
+      expect(order).toEqual(['done', 'settled']); // done precedes settled
+    });
+
+    it('emits settled("failed") on a non-zero exit', async () => {
+      const runner = new ProcessRunner({ task: 'p', adapter: makeMockAdapter(), config: baseConfig });
+      const settled = new Promise<string>((resolve) => runner.on('settled', resolve));
+      runner.start();
+      exitChild(1);
+      expect(await settled).toBe('failed');
+    });
+
+    it('emits settled("cancelled") on cancel — the path that emits no done/error', async () => {
+      const runner = new ProcessRunner({ task: 'p', adapter: makeMockAdapter(), config: baseConfig });
+      let doneOrError = false;
+      const settled = new Promise<string>((resolve) => {
+        runner.on('done', () => { doneOrError = true; });
+        runner.on('error', () => { doneOrError = true; });
+        runner.on('settled', resolve);
+      });
+      runner.start();
+      runner.cancel();
+      exitChild(143); // SIGTERM close after cancel
+      expect(await settled).toBe('cancelled');
+      expect(doneOrError).toBe(false);
+    });
+
+    it('emits settled only once even if close arrives twice', async () => {
+      const runner = new ProcessRunner({ task: 'p', adapter: makeMockAdapter(), config: baseConfig });
+      const reasons: string[] = [];
+      runner.on('settled', (r) => reasons.push(r));
+      runner.start();
+      exitChild(0);
+      exitChild(0);
+      expect(reasons).toEqual(['succeeded']);
+    });
+  });

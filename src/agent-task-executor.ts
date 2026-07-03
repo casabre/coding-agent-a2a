@@ -98,6 +98,13 @@ export class AgentTaskExecutor implements AgentExecutor {
         resolve();
       });
 
+      // Finalizer: fires exactly once on every terminal path (incl. cancel, which emits no
+      // done/error). Idempotent cleanup — the seam where worktree.dispose()/slot-release will
+      // attach later. Publishes no A2A event (preserves the event stream).
+      runner!.on('settled', () => {
+        this._activeRunners.delete(taskId);
+      });
+
       runner!.start();
     });
   };
