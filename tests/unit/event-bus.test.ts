@@ -84,3 +84,29 @@ describe('EventBus', () => {
     });
   });
 });
+
+describe('EventBus EventStream port', () => {
+  it('publish delivers a message to a subscriber on the same channel', () => {
+    const handler = vi.fn();
+    eventBus.subscribe('chan-1', handler);
+    eventBus.publish('chan-1', { hello: 'world' });
+    expect(handler).toHaveBeenCalledWith({ hello: 'world' });
+  });
+
+  it('the unsubscribe function stops further delivery', () => {
+    const handler = vi.fn();
+    const unsub = eventBus.subscribe('chan-2', handler);
+    eventBus.publish('chan-2', 1);
+    unsub();
+    eventBus.publish('chan-2', 2);
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(handler).toHaveBeenCalledWith(1);
+  });
+
+  it('does not cross channels', () => {
+    const handler = vi.fn();
+    eventBus.subscribe('chan-a', handler);
+    eventBus.publish('chan-b', 'nope');
+    expect(handler).not.toHaveBeenCalled();
+  });
+});
