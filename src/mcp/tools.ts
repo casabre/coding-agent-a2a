@@ -19,6 +19,7 @@ export function registerTools(
         repoPath: z.string().optional().describe('Absolute path to the repo (default: AGENT_REPO_PATH env)'),
         model: z.string().optional().describe('Model override (optional)'),
         force: z.boolean().optional().describe('Allow file writes (default: true)'),
+        profile: z.string().optional().describe('Routing profile override: COMPLEX | MID | ROUTINE (optional; classifier decides when omitted)'),
       },
     },
     (args) => {
@@ -26,6 +27,7 @@ export function registerTools(
         model: args.model,
         repoPath: args.repoPath,
         force: args.force,
+        profile: args.profile,
       });
       return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId }) }] };
     },

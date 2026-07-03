@@ -1,1 +1,1 @@
-export type { Config } from './config.js';
+export type { Config, RoutingConfig } from './config.js';

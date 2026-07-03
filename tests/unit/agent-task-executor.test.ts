@@ -330,3 +330,53 @@ describe('AgentTaskExecutor', () => {
     });
   });
 });
+
+describe('AgentTaskExecutor routing', () => {
+  function contextWithMetadata(metadata: unknown, taskId: string): RequestContext {
+    return {
+      taskId,
+      contextId: 'ctx-r',
+      userMessage: {
+        messageId: 'm', role: 1, contextId: 'ctx-r', taskId: '',
+        parts: [makeTextPart('do stuff')],
+        metadata, extensions: [], referenceTaskIds: [],
+      },
+    } as unknown as RequestContext;
+  }
+
+  it('runs the router-selected adapter and applies its model override', () => {
+    const routed = { ...mockAdapter, name: 'routed' };
+    const seen: unknown[] = [];
+    const router = {
+      select: (_task: string, profile?: unknown) => {
+        seen.push(profile);
+        return { adapter: routed, model: 'routed-model', profile: 'MID' as const };
+      },
+    };
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter, router);
+    void executor.execute(contextWithMetadata({ profile: 'MID' }, 'task-r1'), makeBus() as never);
+
+    expect(seen).toEqual(['MID']); // readProfile extracted the string from metadata
+    expect(vi.mocked(ProcessRunner)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        adapter: routed,
+        config: expect.objectContaining({ agentModel: 'routed-model' }),
+      }),
+    );
+  });
+
+  it('passes undefined profile when metadata is null or lacks a string profile', () => {
+    const seen: unknown[] = [];
+    const router = {
+      select: (_task: string, profile?: unknown) => {
+        seen.push(profile);
+        return { adapter: mockAdapter, profile: 'fixed' as const };
+      },
+    };
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter, router);
+    void executor.execute(contextWithMetadata({ profile: 123 }, 'task-r2'), makeBus() as never); // object, non-string
+    void executor.execute(contextWithMetadata(null, 'task-r3'), makeBus() as never);              // null
+
+    expect(seen).toEqual([undefined, undefined]);
+  });
+});

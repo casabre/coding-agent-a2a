@@ -1,6 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { AgentEvent, ProcessAdapter } from '../adapters/base.js';
 import type { Runner } from '../runner.js';
+import type { Router } from '../routing/router.js';
+import { FixedRouter } from '../routing/router.js';
 import type { Config } from '../types.js';
 import { ProcessRunner } from '../process-runner.js';
 import { eventBus } from '../event-bus.js';
@@ -30,12 +32,16 @@ export interface McpJob {
  * All events are also forwarded to the process-wide {@link eventBus} for external subscribers.
  */
 export class McpTaskManager {
-  private readonly _adapter: ProcessAdapter;
+  private readonly _router: Router;
   private readonly _config: Config;
   private readonly _jobs = new Map<string, McpJob & { runner: Runner }>();
 
-  constructor(adapter: ProcessAdapter, config: Config) {
-    this._adapter = adapter;
+  /**
+   * @param router - Per-request adapter selector. Defaults to a {@link FixedRouter} around
+   *   `adapter` (routing disabled) so existing callers are unchanged.
+   */
+  constructor(adapter: ProcessAdapter, config: Config, router?: Router) {
+    this._router = router ?? new FixedRouter(adapter);
     this._config = config;
   }
 
@@ -43,18 +49,23 @@ export class McpTaskManager {
    * Starts a new coding job and returns its UUID immediately (non-blocking).
    *
    * @param task - The natural-language task prompt sent to the CLI.
-   * @param overrides - Optional per-job overrides for model, working directory, or force flag.
+   * @param overrides - Optional per-job overrides for model, working directory, force flag, or
+   *   an explicit routing `profile` (overrides the classifier).
    * @returns A UUID string that identifies this job in subsequent calls.
    */
-  startJob(task: string, overrides?: { model?: string; repoPath?: string; force?: boolean }): string {
+  startJob(
+    task: string,
+    overrides?: { model?: string; repoPath?: string; force?: boolean; profile?: string },
+  ): string {
     const jobId = uuidv4();
+    const route = this._router.select(task, overrides?.profile);
     const config: Config = {
       ...this._config,
-      agentModel: overrides?.model ?? this._config.agentModel,
+      agentModel: overrides?.model ?? route.model ?? this._config.agentModel,
       agentRepoPath: overrides?.repoPath ?? this._config.agentRepoPath,
       agentForce: overrides?.force ?? this._config.agentForce,
     };
-    const runner = new ProcessRunner({ task, adapter: this._adapter, config });
+    const runner = new ProcessRunner({ task, adapter: route.adapter, config });
     const job: McpJob & { runner: Runner } = {
       runner,
       events: [],
