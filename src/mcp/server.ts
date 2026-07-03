@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { ProcessAdapter } from '../adapters/base.js';
 import type { Config } from '../types.js';
 import { McpTaskManager } from './task-manager.js';
+import { createRouter } from '../routing/router.js';
 import { registerTools } from './tools.js';
 
 /**
@@ -19,7 +20,7 @@ export function createMcpServer(
     name: 'coding-agent-a2a',
     version: process.env['npm_package_version'] ?? '0.1.0',
   });
-  const taskManager = new McpTaskManager(adapter, config);
+  const taskManager = new McpTaskManager(adapter, config, createRouter(config, adapter));
   registerTools(server, adapter, taskManager);
   return { server, taskManager };
 }

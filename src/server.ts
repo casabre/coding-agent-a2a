@@ -10,6 +10,7 @@ import type { ProcessAdapter } from './adapters/base.js';
 import type { TokenVerifier } from './auth/verifier.js';
 import { createTokenVerifier } from './auth/verifier.js';
 import { AgentTaskExecutor } from './agent-task-executor.js';
+import { createRouter } from './routing/router.js';
 
 export interface AppOptions {
   executor?: AgentExecutor;
@@ -22,7 +23,7 @@ export function createApp(
   options?: AppOptions,
 ): Express {
   const agentCard = buildAgentCard(config, adapter);
-  const activeExecutor = options?.executor ?? new AgentTaskExecutor(config, adapter);
+  const activeExecutor = options?.executor ?? new AgentTaskExecutor(config, adapter, createRouter(config, adapter));
   const taskStore = new InMemoryTaskStore();
   const handler = new DefaultRequestHandler(agentCard, taskStore, activeExecutor);
 

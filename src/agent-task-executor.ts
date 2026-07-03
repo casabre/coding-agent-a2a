@@ -4,18 +4,24 @@ import { TaskState, Role, type Part } from '@a2a-js/sdk';
 import type { Config } from './types.js';
 import type { ProcessAdapter } from './adapters/base.js';
 import type { Runner } from './runner.js';
+import type { Router } from './routing/router.js';
+import { FixedRouter } from './routing/router.js';
 import { ProcessRunner } from './process-runner.js';
 import { mapAgentEventToA2A } from './a2a-mapper.js';
 import { v4 as uuidv4 } from 'uuid';
 
 export class AgentTaskExecutor implements AgentExecutor {
   private readonly _config: Config;
-  private readonly _adapter: ProcessAdapter;
+  private readonly _router: Router;
   private readonly _activeRunners = new Map<string, Runner>();
 
-  constructor(config: Config, adapter: ProcessAdapter) {
+  /**
+   * @param router - Per-request adapter selector. Defaults to a {@link FixedRouter} around
+   *   `adapter` (routing disabled) so existing callers are unchanged.
+   */
+  constructor(config: Config, adapter: ProcessAdapter, router?: Router) {
     this._config = config;
-    this._adapter = adapter;
+    this._router = router ?? new FixedRouter(adapter);
   }
 
   execute = async (requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> => {
@@ -43,7 +49,9 @@ export class AgentTaskExecutor implements AgentExecutor {
       metadata: undefined,
     }));
 
-    runner = new ProcessRunner({ task: prompt, adapter: this._adapter, config: this._config });
+    const route = this._router.select(prompt, readProfile(requestContext.userMessage.metadata));
+    const runConfig = route.model !== undefined ? { ...this._config, agentModel: route.model } : this._config;
+    runner = new ProcessRunner({ task: prompt, adapter: route.adapter, config: runConfig });
     this._activeRunners.set(taskId, runner);
 
     return new Promise<void>((resolve) => {
@@ -114,6 +122,16 @@ export class AgentTaskExecutor implements AgentExecutor {
     }));
     eventBus.finished();
   };
+}
+
+/**
+ * Best-effort read of an explicit routing profile from A2A message metadata
+ * (`metadata.profile`). Returns `undefined` when absent — the router then classifies the task.
+ */
+function readProfile(metadata: unknown): string | undefined {
+  if (typeof metadata !== 'object' || metadata === null) return undefined;
+  const value = (metadata as Record<string, unknown>)['profile'];
+  return typeof value === 'string' ? value : undefined;
 }
 
 function agentMessage(contextId: string, text: string) {

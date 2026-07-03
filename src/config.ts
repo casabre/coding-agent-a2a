@@ -19,9 +19,28 @@ function boolEnv(defaultVal: boolean) {
   );
 }
 
+/** One routing profile's target: which adapter runs it, and an optional model override. */
+const RouteEntrySchema = z.object({
+  adapter: z.string(),
+  model: z.string().optional(),
+});
+
+/**
+ * Per-request routing map: task-complexity profile → backend. Optional — when absent, the
+ * server uses the single boot `AGENT_ADAPTER` (routing disabled, byte-identical to before).
+ */
+const RoutingSchema = z.object({
+  COMPLEX: RouteEntrySchema,
+  MID:     RouteEntrySchema,
+  ROUTINE: RouteEntrySchema,
+});
+
+export type RoutingConfig = z.infer<typeof RoutingSchema>;
+
 const ConfigSchema = z.object({
   port:            z.coerce.number().int().min(0).default(41242),
   agentAdapter:    z.string().default('cursor'),
+  routing:         RoutingSchema.optional(),
   agentModel:      z.string().optional(),
   agentTimeoutMs:  z.coerce.number().int().min(0).default(120_000),
   agentIdleExitMs: z.coerce.number().int().min(0).default(0),
@@ -116,6 +135,43 @@ function envVals(): Record<string, unknown> {
   return Object.fromEntries(Object.entries(raw).filter(([, v]) => v !== undefined));
 }
 
+/**
+ * Parses nested `ROUTING__<PROFILE>__<FIELD>` env vars (pydantic-settings `env_nested_delimiter`
+ * style) into a partial routing object, e.g. `ROUTING__COMPLEX__ADAPTER=cursor` →
+ * `{ COMPLEX: { adapter: 'cursor' } }`. Returns `undefined` when no such vars are set.
+ */
+function envRouting(): Record<string, Record<string, string>> | undefined {
+  const out: Record<string, Record<string, string>> = {};
+  // Present env keys always map to string values; narrow once to avoid a dead undefined-check.
+  const env = process.env as Record<string, string>;
+  for (const [key, val] of Object.entries(env)) {
+    const match = /^ROUTING__([A-Z]+)__([A-Z]+)$/.exec(key);
+    if (!match) continue;
+    (out[match[1]] ??= {})[match[2].toLowerCase()] = val;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
+/**
+ * Deep-merges the `routing` block so env overrides individual leaves of the file value
+ * (env > file per leaf), rather than replacing the whole object. Returns `undefined` when
+ * neither source provides routing.
+ */
+function mergeRouting(
+  fileRouting: unknown,
+  env: Record<string, Record<string, string>> | undefined,
+): Record<string, unknown> | undefined {
+  const base = (typeof fileRouting === 'object' && fileRouting !== null)
+    ? (fileRouting as Record<string, Record<string, unknown>>)
+    : undefined;
+  if (base === undefined && env === undefined) return undefined;
+  const merged: Record<string, unknown> = { ...(base ?? {}) };
+  for (const [profile, fields] of Object.entries(env ?? {})) {
+    merged[profile] = { ...(base?.[profile] ?? {}), ...fields };
+  }
+  return merged;
+}
+
 async function fetchOidcDiscovery(url: string): Promise<OidcDiscovery> {
   let res: Response;
   try {
@@ -142,6 +198,10 @@ async function hydrateFromDiscovery(config: Config): Promise<Config> {
 export async function loadConfig(): Promise<Config> {
   const fileVals = process.env['CONFIG_FILE'] ? loadConfigFromFile(process.env['CONFIG_FILE']) : {};
   const merged = Object.assign({}, fileVals, envVals());
+  const routing = mergeRouting(fileVals['routing'], envRouting());
+  if (routing !== undefined) {
+    merged['routing'] = routing;
+  }
   const result = ConfigSchema.safeParse(merged);
   if (!result.success) {
     const fields = result.error.flatten().fieldErrors;
