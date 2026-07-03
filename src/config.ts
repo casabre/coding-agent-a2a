@@ -46,6 +46,7 @@ const ConfigSchema = z.object({
   agentIdleExitMs: z.coerce.number().int().min(0).default(0),
   agentForce:      boolEnv(true),
   agentRepoPath:   z.string().default('.'),
+  allowedRepoRoots: z.array(z.string()).optional(),
   mcpTransport:    z.preprocess(
     (val) => (val === 'http' ? 'http' : val === 'stdio' ? 'stdio' : undefined),
     z.enum(['stdio', 'http']).default('stdio'),
@@ -102,6 +103,7 @@ function envVals(): Record<string, unknown> {
   const authEnabledRaw = process.env['AUTH_ENABLED'];
   const authRequiredRaw = process.env['AUTH_REQUIRED_SCOPES'];
   const authRedirectRaw = process.env['AUTH_ALLOWED_REDIRECT_URIS'];
+  const allowedRepoRootsRaw = process.env['AGENT_ALLOWED_REPO_ROOTS'];
   const raw: Record<string, unknown> = {
     port:            process.env['PORT'],
     agentAdapter:    process.env['AGENT_ADAPTER'],
@@ -110,6 +112,9 @@ function envVals(): Record<string, unknown> {
     agentIdleExitMs: process.env['AGENT_IDLE_EXIT_MS'],
     agentForce:      process.env['AGENT_FORCE'],
     agentRepoPath:   process.env['AGENT_REPO_PATH'],
+    allowedRepoRoots: allowedRepoRootsRaw
+      ? allowedRepoRootsRaw.split(',').map((s) => s.trim()).filter(Boolean)
+      : undefined,
     mcpTransport:    process.env['MCP_TRANSPORT'],
     logLevel:        process.env['LOG_LEVEL'],
     otelEnabled: process.env['OTEL_ENABLED'],

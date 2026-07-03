@@ -108,6 +108,24 @@ describe('McpTaskManager', () => {
       );
     });
 
+    it('rejects a repoPath outside the allowed roots when confinement is on', () => {
+      const confined: Config = { ...baseConfig, allowedRepoRoots: ['/work'] };
+      const mgr = new McpTaskManager(mockAdapter, confined);
+      expect(() => mgr.startJob('task', { repoPath: '/etc' })).toThrow(/outside the allowed roots/);
+      expect(vi.mocked(ProcessRunner)).not.toHaveBeenCalled();
+    });
+
+    it('allows a repoPath within the allowed roots when confinement is on', () => {
+      const confined: Config = { ...baseConfig, allowedRepoRoots: ['/work'] };
+      const mgr = new McpTaskManager(mockAdapter, confined);
+      expect(() => mgr.startJob('task', { repoPath: '/work/repo' })).not.toThrow();
+    });
+
+    it('skips the check when no allow-list is configured (unchanged behavior)', () => {
+      const mgr = new McpTaskManager(mockAdapter, baseConfig);
+      expect(() => mgr.startJob('task', { repoPath: '/anywhere' })).not.toThrow();
+    });
+
     it('emits to eventBus on agent-event', () => {
       const mgr = new McpTaskManager(mockAdapter, baseConfig);
       const jobId = mgr.startJob('task');
