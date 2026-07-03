@@ -1,5 +1,6 @@
 import { EventEmitter } from 'node:events';
 import type { AgentEvent } from './adapters/base.js';
+import type { EventStream } from './ports/event-stream.js';
 
 /** Payload emitted on the wildcard `"job:*"` channel. */
 export interface JobEvent {
@@ -17,7 +18,24 @@ export interface JobEvent {
  * Subscribe via {@link onJobEvent} or {@link onAllJobEvents} — both return an unsubscribe
  * function to avoid listener leaks.
  */
-class EventBus extends EventEmitter {
+class EventBus extends EventEmitter implements EventStream {
+  /**
+   * Generic {@link EventStream} publish — emits `message` on `channel`.
+   * The job helpers below are sugar over this transport.
+   */
+  publish(channel: string, message: unknown): void {
+    this.emit(channel, message);
+  }
+
+  /**
+   * Generic {@link EventStream} subscribe.
+   * @returns An unsubscribe function.
+   */
+  subscribe(channel: string, handler: (message: unknown) => void): () => void {
+    this.on(channel, handler);
+    return () => this.off(channel, handler);
+  }
+
   /**
    * Emits `event` on both the per-job and wildcard channels.
    *
