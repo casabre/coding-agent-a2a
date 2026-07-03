@@ -23,12 +23,17 @@ export function registerTools(
       },
     },
     (args) => {
-      const jobId = taskManager.startJob(args.task, {
-        model: args.model,
-        repoPath: args.repoPath,
-        force: args.force,
-        profile: args.profile,
-      });
+      let jobId: string;
+      try {
+        jobId = taskManager.startJob(args.task, {
+          model: args.model,
+          repoPath: args.repoPath,
+          force: args.force,
+          profile: args.profile,
+        });
+      } catch (err) {
+        return { isError: true, content: [{ type: 'text', text: (err as Error).message }] };
+      }
       return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId }) }] };
     },
   );

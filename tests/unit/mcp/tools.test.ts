@@ -73,6 +73,15 @@ describe('registerTools', () => {
         expect.objectContaining({ model: 'claude-opus', repoPath: '/my/repo', force: false }),
       );
     });
+
+    it('returns an error result when startJob rejects the repoPath', async () => {
+      vi.mocked(taskManager.startJob).mockImplementation(() => {
+        throw new Error('repoPath "/etc" is outside the allowed roots (/work)');
+      });
+      const result = await callTool(client, 'coding_agent_run', { task: 'x', repoPath: '/etc' });
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toMatch(/outside the allowed roots/);
+    });
   });
 
   describe('coding_agent_poll', () => {

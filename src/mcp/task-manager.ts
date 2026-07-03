@@ -5,6 +5,7 @@ import type { Router } from '../routing/router.js';
 import { FixedRouter } from '../routing/router.js';
 import type { Config } from '../types.js';
 import { ProcessRunner } from '../process-runner.js';
+import { assertRepoPathAllowed } from '../repo-path.js';
 import { eventBus } from '../event-bus.js';
 
 /** Snapshot of a running or completed MCP job. */
@@ -57,6 +58,11 @@ export class McpTaskManager {
     task: string,
     overrides?: { model?: string; repoPath?: string; force?: boolean; profile?: string },
   ): string {
+    // Repo-path confinement: a caller-supplied repoPath must stay within the operator's
+    // allow-list when one is configured. No allow-list ⇒ unchanged behavior.
+    if (overrides?.repoPath !== undefined && this._config.allowedRepoRoots !== undefined) {
+      assertRepoPathAllowed(overrides.repoPath, this._config.allowedRepoRoots);
+    }
     const jobId = uuidv4();
     const route = this._router.select(task, overrides?.profile);
     const config: Config = {
