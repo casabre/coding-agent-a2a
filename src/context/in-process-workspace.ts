@@ -1,5 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import type { Conventions, ContextPack, Workspace } from './workspace.js';
+import type { Conventions, ContextPack, SymbolSlice, Workspace } from './workspace.js';
+import { extractSymbols, isSupportedSource } from './symbol-index.js';
+
+/** Cap on source files parsed per build, to bound cost on large repos. */
+const MAX_SYMBOL_FILES = 200;
 
 /** Runs a git subcommand in the repo and returns stdout. Injectable for testing. */
 export type GitRunner = (args: string[]) => string;
@@ -57,7 +61,20 @@ export class InProcessWorkspace implements Workspace {
   private _build(): ContextPack {
     const files = this._run(['ls-tree', '-r', '--name-only', 'HEAD'])
       .split('\n').map((s) => s.trim()).filter(Boolean);
-    return { files, conventions: this._conventions(files), symbols: [], truncated: false };
+    return { files, conventions: this._conventions(files), symbols: this._symbols(files), truncated: false };
+  }
+
+  /** Extracts symbols from up to {@link MAX_SYMBOL_FILES} supported source files. */
+  private _symbols(files: string[]): SymbolSlice[] {
+    const symbols: SymbolSlice[] = [];
+    let parsed = 0;
+    for (const file of files) {
+      if (parsed >= MAX_SYMBOL_FILES) break;
+      if (!isSupportedSource(file)) continue;
+      parsed += 1;
+      symbols.push(...extractSymbols(file, this._show(file)));
+    }
+    return symbols;
   }
 
   private _conventions(files: string[]): Conventions {
