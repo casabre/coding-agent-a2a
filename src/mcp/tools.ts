@@ -2,11 +2,14 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { McpTaskManager } from './task-manager.js';
 import type { CodingAgentAdapter } from '../adapters/base.js';
+import type { Workspace } from '../context/workspace.js';
+import { augmentTaskPrompt } from '../context/augment.js';
 
 export function registerTools(
   server: McpServer,
   adapter: CodingAgentAdapter,
   taskManager: McpTaskManager,
+  workspace?: Workspace,
 ): void {
   server.registerTool(
     'coding_agent_run',
@@ -22,10 +25,13 @@ export function registerTools(
         profile: z.string().optional().describe('Routing profile override: COMPLEX | MID | ROUTINE (optional; classifier decides when omitted)'),
       },
     },
-    (args) => {
+    async (args) => {
       let jobId: string;
       try {
-        jobId = taskManager.startJob(args.task, {
+        const task = workspace
+          ? augmentTaskPrompt(args.task, await workspace.getContextPack(args.task))
+          : args.task;
+        jobId = taskManager.startJob(task, {
           model: args.model,
           repoPath: args.repoPath,
           force: args.force,

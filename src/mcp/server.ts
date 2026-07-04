@@ -3,6 +3,7 @@ import type { ProcessAdapter } from '../adapters/base.js';
 import type { Config } from '../types.js';
 import { McpTaskManager } from './task-manager.js';
 import { createRouter } from '../routing/router.js';
+import { createWorkspace } from '../context/index.js';
 import { registerTools } from './tools.js';
 
 /**
@@ -21,6 +22,6 @@ export function createMcpServer(
     version: process.env['npm_package_version'] ?? '0.1.0',
   });
   const taskManager = new McpTaskManager(adapter, config, createRouter(config, adapter));
-  registerTools(server, adapter, taskManager);
+  registerTools(server, adapter, taskManager, createWorkspace(config));
   return { server, taskManager };
 }

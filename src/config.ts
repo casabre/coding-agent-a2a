@@ -47,6 +47,7 @@ const ConfigSchema = z.object({
   agentForce:      boolEnv(true),
   agentRepoPath:   z.string().default('.'),
   allowedRepoRoots: z.array(z.string()).optional(),
+  workspaceEnabled: boolEnv(false),
   mcpTransport:    z.preprocess(
     (val) => (val === 'http' ? 'http' : val === 'stdio' ? 'stdio' : undefined),
     z.enum(['stdio', 'http']).default('stdio'),
@@ -112,6 +113,7 @@ function envVals(): Record<string, unknown> {
     agentIdleExitMs: process.env['AGENT_IDLE_EXIT_MS'],
     agentForce:      process.env['AGENT_FORCE'],
     agentRepoPath:   process.env['AGENT_REPO_PATH'],
+    workspaceEnabled: process.env['WORKSPACE_ENABLED'],
     allowedRepoRoots: allowedRepoRootsRaw
       ? allowedRepoRootsRaw.split(',').map((s) => s.trim()).filter(Boolean)
       : undefined,

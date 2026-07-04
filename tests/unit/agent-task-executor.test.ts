@@ -398,3 +398,25 @@ describe('AgentTaskExecutor settled finalizer', () => {
     expect(getMockRunner().resume).not.toHaveBeenCalled();
   });
 });
+
+describe('AgentTaskExecutor workspace context', () => {
+  it('injects the context pack into the task prompt when a workspace is present', async () => {
+    const workspace = {
+      repoId: '/repo',
+      getContextPack: vi.fn(() => Promise.resolve({
+        files: ['a.ts'], conventions: { testCommand: 'vitest run' }, symbols: [], truncated: false,
+      })),
+      refresh: vi.fn(() => Promise.resolve()),
+    };
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter, undefined, workspace);
+    void executor.execute(makeContext({ taskId: 'task-ws' }), makeBus() as never);
+    // allow the awaited getContextPack microtask + runner construction to complete
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(workspace.getContextPack).toHaveBeenCalledWith('do stuff');
+    const call = vi.mocked(ProcessRunner).mock.calls.at(-1)?.[0] as { task: string };
+    expect(call.task).toContain('<workspace-context>');
+    expect(call.task).toContain('Test command: vitest run');
+    expect(call.task.endsWith('do stuff')).toBe(true);
+  });
+});
