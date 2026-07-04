@@ -1,12 +1,32 @@
-import { resolve, relative, isAbsolute } from 'node:path';
+import { resolve, relative, isAbsolute, dirname, basename, join } from 'node:path';
+import { realpathSync } from 'node:fs';
+
+/**
+ * Canonicalises a path so symlinks are followed consistently for both the root and the target.
+ * If the full path exists, its real path is returned; if only the leaf is missing, the real
+ * parent is used with the leaf re-appended (so a not-yet-created dir still compares correctly);
+ * otherwise it falls back to plain normalisation.
+ */
+function canonicalize(path: string): string {
+  const abs = resolve(path);
+  try {
+    return realpathSync(abs);
+  } catch {
+    try {
+      return join(realpathSync(dirname(abs)), basename(abs));
+    } catch {
+      return abs;
+    }
+  }
+}
 
 /**
  * Returns `true` when `target` resolves to `root` or a path nested inside it.
- * Both are resolved to absolute paths first, so relative inputs and `..` segments
- * are normalised before comparison.
+ * Symlinks are followed (via {@link canonicalize}) so a link inside `root` pointing outside
+ * is correctly rejected; `..` segments and relative inputs are normalised.
  */
 export function isPathWithin(root: string, target: string): boolean {
-  const rel = relative(resolve(root), resolve(target));
+  const rel = relative(canonicalize(root), canonicalize(target));
   return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
 }
 

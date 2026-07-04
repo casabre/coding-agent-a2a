@@ -31,3 +31,24 @@ describe('assertRepoPathAllowed', () => {
       .toThrow(/outside the allowed roots/);
   });
 });
+
+import { mkdtempSync, mkdirSync, symlinkSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+describe('isPathWithin symlink resolution (real fs)', () => {
+  it('rejects a symlink inside the root that escapes to an outside target', () => {
+    const base = mkdtempSync(join(tmpdir(), 'confine-'));
+    const root = join(base, 'root');
+    const outside = join(base, 'outside');
+    mkdirSync(root);
+    mkdirSync(outside);
+    symlinkSync(outside, join(root, 'escape')); // root/escape -> ../outside
+    try {
+      expect(isPathWithin(root, join(root, 'realdir') /* nonexistent → within */)).toBe(true);
+      expect(isPathWithin(root, join(root, 'escape'))).toBe(false); // symlink escape blocked
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
+  });
+});

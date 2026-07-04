@@ -59,8 +59,15 @@ export class AgentTaskExecutor implements AgentExecutor {
     const runConfig = route.model !== undefined ? { ...this._config, agentModel: route.model } : this._config;
     let task = prompt;
     if (this._workspace) {
-      const pack = await this._workspace.getContextPack(prompt);
-      task = augmentTaskPrompt(prompt, pack);
+      // The context pack is an enhancement, not a requirement: a workspace failure
+      // (non-git dir, missing binary, oversized output) must degrade to the plain
+      // prompt, never fail the task.
+      try {
+        const pack = await this._workspace.getContextPack(prompt);
+        task = augmentTaskPrompt(prompt, pack);
+      } catch (err) {
+        console.warn(`[agent-task-executor] workspace context unavailable: ${(err as Error).message}`);
+      }
     }
     runner = new ProcessRunner({ task, adapter: route.adapter, config: runConfig });
     this._activeRunners.set(taskId, runner);
