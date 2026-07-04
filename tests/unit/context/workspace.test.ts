@@ -95,6 +95,27 @@ describe('InProcessWorkspace', () => {
     expect(calls.filter((c) => c[0] === 'ls-tree').length).toBe(2);
   });
 
+  it('extracts symbols from supported source files', async () => {
+    const { git } = fakeGit({
+      files: ['src/a.ts', 'README.md'],
+      show: { 'src/a.ts': 'export function hello() {}\nexport const x = 1;' },
+    });
+    const pack = await new InProcessWorkspace('/repo', git).getContextPack();
+    expect(pack.symbols).toEqual([
+      { name: 'hello', kind: 'function', file: 'src/a.ts' },
+      { name: 'x', kind: 'variable', file: 'src/a.ts' },
+    ]);
+  });
+
+  it('caps symbol extraction at 200 source files', async () => {
+    const files = Array.from({ length: 201 }, (_, i) => `f${i}.ts`);
+    const show: Record<string, string> = {};
+    for (const f of files) show[f] = `export const s = 1;`;
+    const { git } = fakeGit({ files, show });
+    const pack = await new InProcessWorkspace('/repo', git).getContextPack();
+    expect(pack.symbols).toHaveLength(200); // one symbol per parsed file, capped
+  });
+
   it('uses the default git runner (execFileSync) when none is injected', async () => {
     // execFileSync is mocked to return 'sha\n' for every call → empty tree, empty conventions.
     const pack = await new InProcessWorkspace('/repo').getContextPack();
