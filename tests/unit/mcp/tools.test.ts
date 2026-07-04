@@ -186,3 +186,25 @@ describe('registerTools with a workspace', () => {
     expect(passedTask.endsWith('refactor auth')).toBe(true);
   });
 });
+
+describe('coding_agent_run workspace degradation', () => {
+  it('falls back to the plain task when getContextPack rejects', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const server = new McpServer({ name: 'test-ws-fail', version: '0.0.0' });
+    const taskManager = makeMockTaskManager();
+    const workspace = {
+      repoId: '/repo',
+      getContextPack: vi.fn(() => Promise.reject(new Error('git missing'))),
+      refresh: vi.fn(() => Promise.resolve()),
+    };
+    registerTools(server, mockAdapter, taskManager, workspace);
+    const client = await createConnectedPair(server);
+
+    const result = await callTool(client, 'coding_agent_run', { task: 'do it' });
+
+    expect(result.isError).toBeUndefined(); // degrades, not an error
+    expect(vi.mocked(taskManager.startJob).mock.calls.at(-1)?.[0]).toBe('do it'); // plain task
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});

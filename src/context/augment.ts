@@ -3,6 +3,11 @@ import type { ContextPack } from './workspace.js';
 /** Maximum number of file paths to inline in the context header. */
 const MAX_FILES = 50;
 
+/** Strips the block-closing delimiter from untrusted repo text so it can't break out of the context block. */
+function sanitize(text: string): string {
+  return text.split('</workspace-context>').join('');
+}
+
 /**
  * Prepends a compact workspace-context block to a task prompt, drawn from the discovery cache.
  *
@@ -11,8 +16,8 @@ const MAX_FILES = 50;
  */
 export function augmentTaskPrompt(task: string, pack: ContextPack): string {
   const sections: string[] = [];
-  if (pack.conventions.agentsMd) sections.push(`AGENTS.md:\n${pack.conventions.agentsMd}`);
-  if (pack.conventions.claudeMd) sections.push(`CLAUDE.md:\n${pack.conventions.claudeMd}`);
+  if (pack.conventions.agentsMd) sections.push(`AGENTS.md:\n${sanitize(pack.conventions.agentsMd)}`);
+  if (pack.conventions.claudeMd) sections.push(`CLAUDE.md:\n${sanitize(pack.conventions.claudeMd)}`);
   if (pack.conventions.testCommand) sections.push(`Test command: ${pack.conventions.testCommand}`);
   if (pack.symbols.length > 0) {
     sections.push(`Symbols: ${pack.symbols.map((s) => s.name).join(', ')}`);

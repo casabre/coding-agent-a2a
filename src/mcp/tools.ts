@@ -26,11 +26,18 @@ export function registerTools(
       },
     },
     async (args) => {
+      // Workspace context is best-effort: on failure, degrade to the plain task.
+      let task = args.task;
+      if (workspace) {
+        try {
+          task = augmentTaskPrompt(args.task, await workspace.getContextPack(args.task));
+        } catch (err) {
+          console.warn(`[mcp] workspace context unavailable: ${(err as Error).message}`);
+        }
+      }
+      // startJob failures (e.g. repo-path confinement) are real errors — surface them.
       let jobId: string;
       try {
-        const task = workspace
-          ? augmentTaskPrompt(args.task, await workspace.getContextPack(args.task))
-          : args.task;
         jobId = taskManager.startJob(task, {
           model: args.model,
           repoPath: args.repoPath,

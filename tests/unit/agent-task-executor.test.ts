@@ -420,3 +420,22 @@ describe('AgentTaskExecutor workspace context', () => {
     expect(call.task.endsWith('do stuff')).toBe(true);
   });
 });
+
+describe('AgentTaskExecutor workspace degradation', () => {
+  it('falls back to the plain prompt when getContextPack rejects', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const workspace = {
+      repoId: '/repo',
+      getContextPack: vi.fn(() => Promise.reject(new Error('not a git repo'))),
+      refresh: vi.fn(() => Promise.resolve()),
+    };
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter, undefined, workspace);
+    void executor.execute(makeContext({ taskId: 'task-degrade' }), makeBus() as never);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const call = vi.mocked(ProcessRunner).mock.calls.at(-1)?.[0] as { task: string };
+    expect(call.task).toBe('do stuff'); // unchanged — no context block
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+});

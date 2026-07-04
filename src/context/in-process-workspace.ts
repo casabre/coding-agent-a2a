@@ -8,9 +8,15 @@ const MAX_SYMBOL_FILES = 200;
 /** Runs a git subcommand in the repo and returns stdout. Injectable for testing. */
 export type GitRunner = (args: string[]) => string;
 
+/** Upper bound on a single git command's stdout (default is only 1 MB — too small for ls-tree). */
+const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+
 /** Default {@link GitRunner}: shells out to the `git` binary against `repoPath`. */
 export function defaultGitRunner(repoPath: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoPath, ...args], { encoding: 'utf-8' });
+  return execFileSync('git', ['-C', repoPath, ...args], {
+    encoding: 'utf-8',
+    maxBuffer: GIT_MAX_BUFFER,
+  });
 }
 
 /**
@@ -64,7 +70,13 @@ export class InProcessWorkspace implements Workspace {
     return { files, conventions: this._conventions(files), symbols: this._symbols(files), truncated: false };
   }
 
-  /** Extracts symbols from up to {@link MAX_SYMBOL_FILES} supported source files. */
+  /**
+   * Extracts symbols from up to {@link MAX_SYMBOL_FILES} supported source files.
+   *
+   * Note: synchronous (`git show` per file) so it blocks the event loop on large repos —
+   * acceptable at §0.1 scale (cached per HEAD SHA); offload to a worker thread if it becomes
+   * a latency issue under concurrency.
+   */
   private _symbols(files: string[]): SymbolSlice[] {
     const symbols: SymbolSlice[] = [];
     let parsed = 0;
