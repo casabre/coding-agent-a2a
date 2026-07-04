@@ -116,6 +116,20 @@ describe('InProcessWorkspace', () => {
     expect(pack.symbols).toHaveLength(200); // one symbol per parsed file, capped
   });
 
+  it('skips a source file whose git show throws, keeping the rest', async () => {
+    const git: GitRunner = (args) => {
+      if (args[0] === 'rev-parse') return 'sha\n';
+      if (args[0] === 'ls-tree') return 'good.ts\nbad.ts\n';
+      if (args[0] === 'show') {
+        if (args[1] === 'HEAD:bad.ts') throw new Error('unreadable');
+        return 'export const g = 1;';
+      }
+      return '';
+    };
+    const pack = await new InProcessWorkspace('/repo', git).getContextPack();
+    expect(pack.symbols).toEqual([{ name: 'g', kind: 'variable', file: 'good.ts' }]);
+  });
+
   it('uses the default git runner (execFileSync) when none is injected', async () => {
     // execFileSync is mocked to return 'sha\n' for every call → empty tree, empty conventions.
     const pack = await new InProcessWorkspace('/repo').getContextPack();

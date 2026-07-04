@@ -90,7 +90,11 @@ cp .env.example .env
 | `AGENT_FORCE` | boolean | `true` | When `true`, the CLI skips all shell-command approval prompts (`-f` / `--dangerously-skip-permissions`). When `false`, tasks may pause in `input-required` state awaiting approval. |
 | `AGENT_REPO_PATH` | string | `.` | Absolute path used as the CLI's working directory. Should point to the repository the agent will edit. |
 | `MCP_TRANSPORT` | string | `stdio` | MCP transport mode. See [Transport modes](#4-transport-modes). |
+| `WORKSPACE_ENABLED` | boolean | `false` | When `true`, build a per-repo discovery cache (file tree + conventions + TS/JS symbol index) and prepend it to each task prompt. See the note below. |
+| `AGENT_ALLOWED_REPO_ROOTS` | string | _(unset)_ | Comma-separated allow-list of root directories. When set, a caller-supplied `repoPath` must resolve inside one of these roots or the task is rejected. Unset = no confinement. |
 | `LOG_LEVEL` | string | `info` | Logging verbosity: `debug` \| `info` \| `warn` \| `error`. Use `debug` to see unparsed CLI lines. |
+
+> **Image-size note (`WORKSPACE_ENABLED`):** the symbol index uses the TypeScript compiler API, so `typescript` is a **runtime** dependency (~tens of MB in the production image) — the single heaviest new prod dep. It ships regardless of the flag; enabling the flag activates the feature. If image size is constrained and you don't need symbol context, this is the first dependency to revisit (e.g. a lighter parser or a build variant). Symbol extraction is also synchronous (`git show` per file, capped at 200) and blocks the event loop on a cold build of a large repo — offload to `git cat-file --batch` / a worker thread if that becomes a latency issue.
 
 ### Validation rules
 
