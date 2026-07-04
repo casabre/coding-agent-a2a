@@ -1,34 +1,80 @@
-import { execFileSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import type { Conventions, ContextPack, SymbolSlice, Workspace } from './workspace.js';
 import { extractSymbols, isSupportedSource } from './symbol-index.js';
 
-/** Cap on source files parsed per build, to bound cost on large repos. */
+/** Cap on source files read per build, to bound cost on large repos. */
 const MAX_SYMBOL_FILES = 200;
 
-/** Runs a git subcommand in the repo and returns stdout. Injectable for testing. */
-export type GitRunner = (args: string[]) => string;
+/** Convention files read (if present) for the context pack. */
+const CONVENTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'package.json'] as const;
 
-/** Upper bound on a single git command's stdout (default is only 1 MB — too small for ls-tree). */
-const GIT_MAX_BUFFER = 64 * 1024 * 1024;
+/** Runs a git subcommand (optionally feeding `input` on stdin) and resolves its stdout. Injectable for testing. */
+export type GitRunner = (args: string[], input?: string) => Promise<Buffer>;
 
-/** Default {@link GitRunner}: shells out to the `git` binary against `repoPath`. */
-export function defaultGitRunner(repoPath: string, args: string[]): string {
-  return execFileSync('git', ['-C', repoPath, ...args], {
-    encoding: 'utf-8',
-    maxBuffer: GIT_MAX_BUFFER,
+/**
+ * Default {@link GitRunner}: spawns `git` against `repoPath`, streams stdout into a buffer, and
+ * (unlike a fixed `maxBuffer`) grows with the output. Used for both text commands and the
+ * binary-safe `cat-file --batch` stream.
+ */
+export function defaultGitRunner(repoPath: string, args: string[], input?: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const child = spawn('git', ['-C', repoPath, ...args]);
+    const out: Buffer[] = [];
+    const err: Buffer[] = [];
+    child.stdout.on('data', (chunk: Buffer) => out.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => err.push(chunk));
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) resolve(Buffer.concat(out));
+      else reject(new Error(`git ${args.join(' ')} exited ${String(code)}: ${Buffer.concat(err).toString('utf8').trim()}`));
+    });
+    child.stdin.on('error', () => { /* ignore EPIPE if git exits before we finish writing */ });
+    if (input !== undefined) child.stdin.write(input);
+    child.stdin.end();
   });
+}
+
+/**
+ * Parses `git cat-file --batch` output. For each requested path (in input order) the stream is
+ * either `<oid> <type> <size>\n<size bytes>\n` (present) or `<input> missing\n` (absent). Byte
+ * offsets are used throughout so multi-byte content is sliced correctly.
+ *
+ * Exported for direct unit testing of the record framing.
+ */
+export function parseBatch(paths: string[], out: Buffer): Map<string, string> {
+  const contents = new Map<string, string>();
+  let pos = 0;
+  for (const path of paths) {
+    const newline = out.indexOf(0x0a, pos);
+    if (newline === -1) break; // truncated/short output — stop rather than misparse
+    const header = out.toString('utf8', pos, newline);
+    pos = newline + 1;
+    const parts = header.split(' ');
+    if (parts[parts.length - 1] === 'missing') continue; // no content record follows
+    const size = Number(parts[2]);
+    contents.set(path, out.toString('utf8', pos, pos + size));
+    pos += size + 1; // skip the content and its trailing newline
+  }
+  return contents;
+}
+
+/** Extracts the `test` script from a package.json string, tolerating malformed JSON. */
+function testCommandFrom(packageJson: string): string | undefined {
+  try {
+    const pkg = JSON.parse(packageJson) as { scripts?: Record<string, string> };
+    return pkg.scripts?.test;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
  * In-process {@link Workspace} backed by a git-SHA-addressed discovery cache.
  *
- * `getContextPack` returns the file tree + project conventions for the repo, rebuilding only
- * when `HEAD` changes — so a repeat task on an unchanged repo is served from cache instead of
- * cold-scanning. Symbol slices are left empty here; tree-sitter indexing is a follow-up that
- * populates `ContextPack.symbols` behind the same shape.
- *
- * Git calls are synchronous; `getContextPack`/`refresh` are async to match the {@link Workspace}
- * port and to leave room for an out-of-process implementation later.
+ * `getContextPack` returns the file tree + conventions + a TS/JS symbol index, rebuilding only
+ * when `HEAD` changes. All file contents for a build are read in **one** `git cat-file --batch`
+ * process (not one `git show` per file). Concurrent first-callers on the same SHA share a single
+ * build (single-flight), so the work runs once.
  */
 export class InProcessWorkspace implements Workspace {
   readonly repoId: string;
@@ -36,6 +82,8 @@ export class InProcessWorkspace implements Workspace {
   private readonly _git: GitRunner | undefined;
   private _cachedSha: string | null = null;
   private _cachedPack: ContextPack | null = null;
+  private _inflight: Promise<ContextPack> | null = null;
+  private _inflightSha: string | null = null;
 
   constructor(repoPath: string, git?: GitRunner) {
     this._repoPath = repoPath;
@@ -43,18 +91,21 @@ export class InProcessWorkspace implements Workspace {
     this._git = git;
   }
 
-  getContextPack(): Promise<ContextPack> {
-    // No single-flight needed while _build() is synchronous: there is no await between the
-    // cache check and set, so concurrent callers cannot both miss. Add one if this ever goes
-    // out-of-process/async.
-    const sha = this._run(['rev-parse', 'HEAD']).trim();
+  async getContextPack(): Promise<ContextPack> {
+    const sha = (await this._text(['rev-parse', 'HEAD'])).trim();
     if (this._cachedPack !== null && this._cachedSha === sha) {
-      return Promise.resolve(this._cachedPack); // cache hit — no re-scan
+      return this._cachedPack; // cache hit — no re-scan
     }
-    const pack = this._build();
-    this._cachedSha = sha;
-    this._cachedPack = pack;
-    return Promise.resolve(pack);
+    // Single-flight: concurrent callers on the same SHA share one build instead of racing.
+    if (this._inflight !== null && this._inflightSha === sha) {
+      return this._inflight;
+    }
+    this._inflightSha = sha;
+    this._inflight = this._build(sha).finally(() => {
+      this._inflight = null;
+      this._inflightSha = null;
+    });
+    return this._inflight;
   }
 
   refresh(): Promise<void> {
@@ -63,61 +114,59 @@ export class InProcessWorkspace implements Workspace {
     return Promise.resolve();
   }
 
-  private _run(args: string[]): string {
-    return this._git ? this._git(args) : defaultGitRunner(this._repoPath, args);
-  }
-
-  private _build(): ContextPack {
-    const files = this._run(['ls-tree', '-r', '--name-only', 'HEAD'])
+  private async _build(sha: string): Promise<ContextPack> {
+    const files = (await this._text(['ls-tree', '-r', '--name-only', 'HEAD']))
       .split('\n').map((s) => s.trim()).filter(Boolean);
-    return { files, conventions: this._conventions(files), symbols: this._symbols(files), truncated: false };
+    const conventionPaths = CONVENTION_FILES.filter((f) => files.includes(f));
+    const sourcePaths = files.filter(isSupportedSource).slice(0, MAX_SYMBOL_FILES);
+    const contents = await this._batchRead([...new Set([...conventionPaths, ...sourcePaths])]);
+
+    const pack: ContextPack = {
+      files,
+      conventions: this._conventions(contents),
+      symbols: this._symbols(sourcePaths, contents),
+      truncated: false,
+    };
+    this._cachedSha = sha;
+    this._cachedPack = pack;
+    return pack;
   }
 
-  /**
-   * Extracts symbols from up to {@link MAX_SYMBOL_FILES} supported source files.
-   *
-   * Note: synchronous (one `git show` per file) so it blocks the event loop on large repos —
-   * acceptable at §0.1 scale (cached per HEAD SHA). Escalation if it becomes a latency issue:
-   * read all blobs in one process via `git cat-file --batch`, and/or offload to a worker thread.
-   * A single unreadable file is skipped, not fatal (see the try/catch below).
-   */
-  private _symbols(files: string[]): SymbolSlice[] {
-    const symbols: SymbolSlice[] = [];
-    let parsed = 0;
-    for (const file of files) {
-      if (parsed >= MAX_SYMBOL_FILES) break;
-      if (!isSupportedSource(file)) continue;
-      parsed += 1;
-      try {
-        symbols.push(...extractSymbols(file, this._show(file)));
-      } catch {
-        // One unreadable file (e.g. a git show error) must not sink the whole pack — skip it.
-      }
-    }
-    return symbols;
-  }
-
-  private _conventions(files: string[]): Conventions {
+  private _conventions(contents: Map<string, string>): Conventions {
     const conventions: Conventions = {};
-    if (files.includes('AGENTS.md')) conventions.agentsMd = this._show('AGENTS.md');
-    if (files.includes('CLAUDE.md')) conventions.claudeMd = this._show('CLAUDE.md');
-    if (files.includes('package.json')) {
-      const testCommand = this._testCommand();
+    const agentsMd = contents.get('AGENTS.md');
+    if (agentsMd !== undefined) conventions.agentsMd = agentsMd;
+    const claudeMd = contents.get('CLAUDE.md');
+    if (claudeMd !== undefined) conventions.claudeMd = claudeMd;
+    const pkg = contents.get('package.json');
+    if (pkg !== undefined) {
+      const testCommand = testCommandFrom(pkg);
       if (testCommand !== undefined) conventions.testCommand = testCommand;
     }
     return conventions;
   }
 
-  private _show(path: string): string {
-    return this._run(['show', `HEAD:${path}`]);
+  private _symbols(sourcePaths: string[], contents: Map<string, string>): SymbolSlice[] {
+    const symbols: SymbolSlice[] = [];
+    for (const path of sourcePaths) {
+      const content = contents.get(path);
+      if (content === undefined) continue; // blob missing/unreadable — skip, don't sink the pack
+      symbols.push(...extractSymbols(path, content));
+    }
+    return symbols;
   }
 
-  private _testCommand(): string | undefined {
-    try {
-      const pkg = JSON.parse(this._show('package.json')) as { scripts?: Record<string, string> };
-      return pkg.scripts?.test;
-    } catch {
-      return undefined;
-    }
+  private async _batchRead(paths: string[]): Promise<Map<string, string>> {
+    if (paths.length === 0) return new Map();
+    const input = paths.map((p) => `HEAD:${p}`).join('\n') + '\n';
+    return parseBatch(paths, await this._run(['cat-file', '--batch'], input));
+  }
+
+  private async _text(args: string[]): Promise<string> {
+    return (await this._run(args)).toString('utf8');
+  }
+
+  private _run(args: string[], input?: string): Promise<Buffer> {
+    return this._git ? this._git(args, input) : defaultGitRunner(this._repoPath, args, input);
   }
 }
