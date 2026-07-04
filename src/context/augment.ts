@@ -16,16 +16,17 @@ function sanitize(text: string): string {
  */
 export function augmentTaskPrompt(task: string, pack: ContextPack): string {
   const sections: string[] = [];
+  if (pack.truncated) sections.push('(context truncated to fit the budget — this list is partial)');
   if (pack.conventions.agentsMd) sections.push(`AGENTS.md:\n${sanitize(pack.conventions.agentsMd)}`);
   if (pack.conventions.claudeMd) sections.push(`CLAUDE.md:\n${sanitize(pack.conventions.claudeMd)}`);
-  if (pack.conventions.testCommand) sections.push(`Test command: ${pack.conventions.testCommand}`);
+  if (pack.conventions.testCommand) sections.push(`Test command: ${sanitize(pack.conventions.testCommand)}`);
   if (pack.symbols.length > 0) {
-    sections.push(`Symbols: ${pack.symbols.map((s) => s.name).join(', ')}`);
+    sections.push(`Symbols: ${sanitize(pack.symbols.map((s) => s.name).join(', '))}`);
   }
   if (pack.files.length > 0) {
     const shown = pack.files.slice(0, MAX_FILES).join(', ');
     const more = pack.files.length > MAX_FILES ? `, …(+${pack.files.length - MAX_FILES})` : '';
-    sections.push(`Files (${pack.files.length}): ${shown}${more}`);
+    sections.push(`Files (${pack.files.length}): ${sanitize(`${shown}${more}`)}`);
   }
   if (sections.length === 0) return task;
   return `<workspace-context>\n${sections.join('\n\n')}\n</workspace-context>\n\n${task}`;

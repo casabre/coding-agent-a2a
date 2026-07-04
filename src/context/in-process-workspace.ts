@@ -44,6 +44,9 @@ export class InProcessWorkspace implements Workspace {
   }
 
   getContextPack(): Promise<ContextPack> {
+    // No single-flight needed while _build() is synchronous: there is no await between the
+    // cache check and set, so concurrent callers cannot both miss. Add one if this ever goes
+    // out-of-process/async.
     const sha = this._run(['rev-parse', 'HEAD']).trim();
     if (this._cachedPack !== null && this._cachedSha === sha) {
       return Promise.resolve(this._cachedPack); // cache hit — no re-scan
@@ -73,9 +76,10 @@ export class InProcessWorkspace implements Workspace {
   /**
    * Extracts symbols from up to {@link MAX_SYMBOL_FILES} supported source files.
    *
-   * Note: synchronous (`git show` per file) so it blocks the event loop on large repos —
-   * acceptable at §0.1 scale (cached per HEAD SHA); offload to a worker thread if it becomes
-   * a latency issue under concurrency.
+   * Note: synchronous (one `git show` per file) so it blocks the event loop on large repos —
+   * acceptable at §0.1 scale (cached per HEAD SHA). Escalation if it becomes a latency issue:
+   * read all blobs in one process via `git cat-file --batch`, and/or offload to a worker thread.
+   * A single unreadable file is skipped, not fatal (see the try/catch below).
    */
   private _symbols(files: string[]): SymbolSlice[] {
     const symbols: SymbolSlice[] = [];
@@ -84,7 +88,11 @@ export class InProcessWorkspace implements Workspace {
       if (parsed >= MAX_SYMBOL_FILES) break;
       if (!isSupportedSource(file)) continue;
       parsed += 1;
-      symbols.push(...extractSymbols(file, this._show(file)));
+      try {
+        symbols.push(...extractSymbols(file, this._show(file)));
+      } catch {
+        // One unreadable file (e.g. a git show error) must not sink the whole pack — skip it.
+      }
     }
     return symbols;
   }
