@@ -6,6 +6,8 @@ import type { ProcessAdapter } from './adapters/base.js';
 import type { Runner } from './runner.js';
 import type { Router } from './routing/router.js';
 import { FixedRouter } from './routing/router.js';
+import type { Workspace } from './context/workspace.js';
+import { augmentTaskPrompt } from './context/augment.js';
 import { ProcessRunner } from './process-runner.js';
 import { mapAgentEventToA2A } from './a2a-mapper.js';
 import { v4 as uuidv4 } from 'uuid';
@@ -13,15 +15,19 @@ import { v4 as uuidv4 } from 'uuid';
 export class AgentTaskExecutor implements AgentExecutor {
   private readonly _config: Config;
   private readonly _router: Router;
+  private readonly _workspace: Workspace | undefined;
   private readonly _activeRunners = new Map<string, Runner>();
 
   /**
    * @param router - Per-request adapter selector. Defaults to a {@link FixedRouter} around
    *   `adapter` (routing disabled) so existing callers are unchanged.
+   * @param workspace - Optional context source. When absent, no context pack is injected and
+   *   the task prompt is used verbatim (byte-identical to before).
    */
-  constructor(config: Config, adapter: ProcessAdapter, router?: Router) {
+  constructor(config: Config, adapter: ProcessAdapter, router?: Router, workspace?: Workspace) {
     this._config = config;
     this._router = router ?? new FixedRouter(adapter);
+    this._workspace = workspace;
   }
 
   execute = async (requestContext: RequestContext, eventBus: ExecutionEventBus): Promise<void> => {
@@ -51,7 +57,12 @@ export class AgentTaskExecutor implements AgentExecutor {
 
     const route = this._router.select(prompt, readProfile(requestContext.userMessage.metadata));
     const runConfig = route.model !== undefined ? { ...this._config, agentModel: route.model } : this._config;
-    runner = new ProcessRunner({ task: prompt, adapter: route.adapter, config: runConfig });
+    let task = prompt;
+    if (this._workspace) {
+      const pack = await this._workspace.getContextPack(prompt);
+      task = augmentTaskPrompt(prompt, pack);
+    }
+    runner = new ProcessRunner({ task, adapter: route.adapter, config: runConfig });
     this._activeRunners.set(taskId, runner);
 
     return new Promise<void>((resolve) => {

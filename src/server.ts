@@ -11,6 +11,7 @@ import type { TokenVerifier } from './auth/verifier.js';
 import { createTokenVerifier } from './auth/verifier.js';
 import { AgentTaskExecutor } from './agent-task-executor.js';
 import { createRouter } from './routing/router.js';
+import { createWorkspace } from './context/index.js';
 
 export interface AppOptions {
   executor?: AgentExecutor;
@@ -23,7 +24,8 @@ export function createApp(
   options?: AppOptions,
 ): Express {
   const agentCard = buildAgentCard(config, adapter);
-  const activeExecutor = options?.executor ?? new AgentTaskExecutor(config, adapter, createRouter(config, adapter));
+  const activeExecutor = options?.executor
+    ?? new AgentTaskExecutor(config, adapter, createRouter(config, adapter), createWorkspace(config));
   const taskStore = new InMemoryTaskStore();
   const handler = new DefaultRequestHandler(agentCard, taskStore, activeExecutor);
 

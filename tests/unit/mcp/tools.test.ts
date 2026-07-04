@@ -163,3 +163,26 @@ describe('registerTools', () => {
     });
   });
 });
+
+describe('registerTools with a workspace', () => {
+  it('augments the task with the context pack before startJob', async () => {
+    const server = new McpServer({ name: 'test-ws', version: '0.0.0' });
+    const taskManager = makeMockTaskManager();
+    const workspace = {
+      repoId: '/repo',
+      getContextPack: vi.fn(() => Promise.resolve({
+        files: ['a.ts'], conventions: { testCommand: 'vitest run' }, symbols: [], truncated: false,
+      })),
+      refresh: vi.fn(() => Promise.resolve()),
+    };
+    registerTools(server, mockAdapter, taskManager, workspace);
+    const client = await createConnectedPair(server);
+
+    await callTool(client, 'coding_agent_run', { task: 'refactor auth' });
+
+    expect(workspace.getContextPack).toHaveBeenCalledWith('refactor auth');
+    const passedTask = vi.mocked(taskManager.startJob).mock.calls.at(-1)?.[0] as string;
+    expect(passedTask).toContain('<workspace-context>');
+    expect(passedTask.endsWith('refactor auth')).toBe(true);
+  });
+});
