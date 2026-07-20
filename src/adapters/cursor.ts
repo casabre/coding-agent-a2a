@@ -19,7 +19,7 @@ export class CursorAdapter implements ProcessAdapter {
   buildArgv(options: RunOptions): string[] {
     const args: string[] = ['--print', '--output-format', 'stream-json'];
     if (options.force !== false) args.push('-f');
-    if (options.model) args.push('-m', options.model);
+    if (options.model) args.push('--model', options.model);
     args.push(options.task);
     return args;
   }

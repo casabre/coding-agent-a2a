@@ -51,16 +51,16 @@ describe('CursorAdapter', () => {
       expect(args).not.toContain('-f');
     });
 
-    it('includes -m and model when model is set', () => {
+    it('includes --model and model when model is set', () => {
       const args = adapter.buildArgv({ task: 'p', repoPath: '.', model: 'claude-opus' });
-      const idx = args.indexOf('-m');
+      const idx = args.indexOf('--model');
       expect(idx).toBeGreaterThanOrEqual(0);
       expect(args[idx + 1]).toBe('claude-opus');
     });
 
-    it('excludes -m when model is undefined', () => {
+    it('excludes --model when model is undefined', () => {
       const args = adapter.buildArgv({ task: 'p', repoPath: '.' });
-      expect(args).not.toContain('-m');
+      expect(args).not.toContain('--model');
     });
 
     it('appends task as last argument', () => {
