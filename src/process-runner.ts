@@ -1,11 +1,11 @@
 import { EventEmitter } from 'node:events';
-import { spawn } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import type { Span } from '@opentelemetry/api';
 import { SpanStatusCode } from '@opentelemetry/api';
 import type { ProcessAdapter, AgentEvent, AgentStats } from './adapters/base.js';
 import type { Runner, TerminalReason } from './runner.js';
 import type { Config } from './types.js';
+import { spawnCli } from './cli-spawn.js';
 import { tracer, inputTokenCounter, outputTokenCounter, taskDurationHist, taskErrorCounter, context } from './telemetry.js';
 
 /** Construction options for {@link ProcessRunner}. */
@@ -82,7 +82,7 @@ export class ProcessRunner extends EventEmitter implements Runner {
 
     let child: ChildProcess;
     try {
-      child = spawn(binary, args, {
+      child = spawnCli(binary, args, {
         shell: false,
         cwd: config.agentRepoPath,
         env: process.env,
