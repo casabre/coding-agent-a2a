@@ -56,7 +56,8 @@ export class AgentTaskExecutor implements AgentExecutor {
     }));
 
     const route = this._router.select(prompt, readProfile(requestContext.userMessage.metadata));
-    const runConfig = route.model !== undefined ? { ...this._config, agentModel: route.model } : this._config;
+    const modelOverride = readModel(requestContext.userMessage.metadata) ?? route.model;
+    const runConfig = modelOverride !== undefined ? { ...this._config, agentModel: modelOverride } : this._config;
     let task = prompt;
     if (this._workspace) {
       // The context pack is an enhancement, not a requirement: a workspace failure
@@ -156,6 +157,13 @@ export class AgentTaskExecutor implements AgentExecutor {
 function readProfile(metadata: unknown): string | undefined {
   if (typeof metadata !== 'object' || metadata === null) return undefined;
   const value = (metadata as Record<string, unknown>)['profile'];
+  return typeof value === 'string' ? value : undefined;
+}
+
+/** Best-effort read of a per-request model override from A2A message metadata (`metadata.model`). */
+function readModel(metadata: unknown): string | undefined {
+  if (typeof metadata !== 'object' || metadata === null) return undefined;
+  const value = (metadata as Record<string, unknown>)['model'];
   return typeof value === 'string' ? value : undefined;
 }
 

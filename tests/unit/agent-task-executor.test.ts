@@ -365,6 +365,20 @@ describe('AgentTaskExecutor routing', () => {
     );
   });
 
+  it('prefers metadata.model over the router model override', () => {
+    const router = {
+      select: () => ({ adapter: mockAdapter, model: 'router-model', profile: 'MID' as const }),
+    };
+    const executor = new AgentTaskExecutor(baseConfig, mockAdapter, router);
+    void executor.execute(contextWithMetadata({ profile: 'MID', model: 'request-model' }, 'task-rm'), makeBus() as never);
+
+    expect(vi.mocked(ProcessRunner)).toHaveBeenCalledWith(
+      expect.objectContaining({
+        config: expect.objectContaining({ agentModel: 'request-model' }),
+      }),
+    );
+  });
+
   it('passes undefined profile when metadata is null or lacks a string profile', () => {
     const seen: unknown[] = [];
     const router = {
