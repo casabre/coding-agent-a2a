@@ -43,7 +43,7 @@ describe('isPathWithin symlink resolution (real fs)', () => {
     const outside = join(base, 'outside');
     mkdirSync(root);
     mkdirSync(outside);
-    symlinkSync(outside, join(root, 'escape')); // root/escape -> ../outside
+    symlinkSync(outside, join(root, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
     try {
       expect(isPathWithin(root, join(root, 'realdir') /* nonexistent → within */)).toBe(true);
       expect(isPathWithin(root, join(root, 'escape'))).toBe(false); // symlink escape blocked
