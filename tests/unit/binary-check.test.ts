@@ -7,7 +7,7 @@ vi.mock('node:fs/promises', () => ({
   constants: { F_OK: 0, X_OK: 1 },
 }));
 
-import { assertBinaryAccessible } from '../../src/binary-check.js';
+import { assertBinaryAccessible, executableAccessMode, executableExtensions } from '../../src/binary-check.js';
 
 const originalPlatform = process.platform;
 
@@ -104,5 +104,17 @@ describe('assertBinaryAccessible', () => {
         "'cursor-agent' not found on PATH",
       );
     });
+  });
+});
+
+describe('binary-check platform helpers', () => {
+  it('uses F_OK on Windows and X_OK elsewhere', () => {
+    expect(executableAccessMode('win32')).toBe(0);
+    expect(executableAccessMode('linux')).toBe(1);
+  });
+
+  it('only returns executable extensions on Windows', () => {
+    expect(executableExtensions('win32')).toEqual(['.exe', '.cmd', '.bat', '.com']);
+    expect(executableExtensions('linux')).toEqual([]);
   });
 });
